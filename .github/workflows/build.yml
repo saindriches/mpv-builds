@@ -1,0 +1,257 @@
+name: build
+
+# Builds mpv (the player: mpv.app on macOS, mpv.exe on Windows, the binary on Linux) against an
+# FFmpeg compiled from source with patches/ffmpeg/*.patch applied — today the MMT/TLV demuxer, so
+# mpv plays ISDB-S3 4K/8K .mmts natively. Framework is general: drop more .patch files into
+# patches/<dep>/ and they apply in order.
+#
+# Caching, so iterating is cheap:
+#   1. The built patched-FFmpeg prefix is cached, keyed on the patch set + FFmpeg version. It only
+#      rebuilds when a patch or the version changes; mpv-only iterations restore it in seconds.
+#   2. ccache accelerates recompiles (mpv, and FFmpeg when it does rebuild), keyed per platform
+#      with a rolling restore-key (mpv's own CI pattern).
+
+on:
+  push:
+    branches: [main]
+    paths: ['patches/**', 'scripts/**', '.github/workflows/build.yml', 'manifest.env']
+  workflow_dispatch:
+    inputs:
+      mpv_ref:
+        description: "mpv git ref to build (default: master / nightly)"
+        default: "master"
+      force_rebuild_ffmpeg:
+        description: "Ignore the FFmpeg prefix cache and rebuild it"
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 18 * * *'   # nightly (mpv master moves; FFmpeg stays cached unless patches change)
+
+permissions:
+  contents: write
+
+env:
+  FFMPEG_VERSION: "8.0.1"
+  MPV_REF: ${{ github.event.inputs.mpv_ref || 'master' }}
+  CACHE_EPOCH: "1"
+
+jobs:
+  # ---------------------------------------------------------------- macOS (arm64 + x86_64) -------
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, arch: arm64 }
+          - { os: macos-13, arch: x86_64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      PREFIX: ${{ github.workspace }}/ffprefix
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: "800M"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout mpv
+        uses: actions/checkout@v4
+        with:
+          repository: mpv-player/mpv
+          ref: ${{ env.MPV_REF }}
+          path: mpv
+
+      - name: Apply mpv source patches
+        run: |
+          shopt -s nullglob
+          for p in "$GITHUB_WORKSPACE"/patches/mpv/*.patch; do
+            echo "mpv-builds: applying $(basename "$p")"; patch -p1 -F3 -d mpv -i "$p"
+          done
+
+      - name: Compute patch hash
+        id: keys
+        run: echo "patch_hash=$(find patches/ffmpeg -name '*.patch' | sort | xargs cat | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore patched-FFmpeg prefix
+        id: ffcache
+        if: ${{ github.event.inputs.force_rebuild_ffmpeg != 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PREFIX }}
+          key: ffmpeg-${{ matrix.os }}-${{ matrix.arch }}-v${{ env.FFMPEG_VERSION }}-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_id }}
+          restore-keys: ccache-${{ matrix.os }}-${{ matrix.arch }}-
+
+      - name: Install toolchain + mpv deps (not FFmpeg — we build that patched)
+        run: |
+          brew update
+          brew install ccache nasm meson ninja pkg-config \
+            luajit libass libplacebo little-cms2 uchardet mujs \
+            libarchive libbluray rubberband zimg libcaca libcdio-paranoia libdvdnav \
+            molten-vk vulkan-loader vulkan-headers rust
+
+      - name: Build patched FFmpeg
+        if: ${{ steps.ffcache.outputs.cache-hit != 'true' }}
+        env:
+          CC: "ccache clang"
+          CXX: "ccache clang++"
+        run: ./scripts/build-ffmpeg.sh
+
+      - name: Build mpv + app bundle
+        env:
+          CC: "ccache clang"
+          CXX: "ccache clang++"
+          # our patched FFmpeg first, then Homebrew for the rest of the deps
+          PKG_CONFIG_PATH: ${{ env.PREFIX }}/lib/pkgconfig
+        run: |
+          set -euxo pipefail
+          export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$(brew --prefix)/lib/pkgconfig:$(brew --prefix libarchive)/lib/pkgconfig"
+          cd mpv
+          meson setup build \
+            -Dprefix="$GITHUB_WORKSPACE/mpv-out" \
+            -Dlibmpv=true \
+            -D{cocoa,coreaudio,gl-cocoa,videotoolbox-gl,videotoolbox-pl}=enabled \
+            -D{swift-build,macos-cocoa-cb,macos-media-player,macos-touchbar}=enabled \
+            -D{gl,plain-gl,iconv,lcms2,lua,libarchive,libbluray,rubberband,zimg,zlib,vulkan}=enabled \
+            -Dobjc_args="-Wno-error=deprecated -Wno-error=deprecated-declarations"
+          meson compile -C build
+          meson compile -C build macos-bundle       # -> build/mpv.app
+          test -d build/mpv.app || { echo "::error::mpv.app not produced"; exit 1; }
+
+      - name: Embed patched FFmpeg dylibs + ad-hoc sign
+        run: |
+          set -euxo pipefail
+          APP="$GITHUB_WORKSPACE/mpv/build/mpv.app"
+          FW="$APP/Contents/Frameworks"; mkdir -p "$FW"
+          # mpv.app links the dylibs by @rpath; ship our patched libav* alongside so it loads them.
+          cp -p "$PREFIX"/lib/lib{avcodec,avformat,avutil,swscale,swresample,avfilter,postproc}*.dylib "$FW"/ 2>/dev/null || true
+          find "$FW" -name '*.dylib' -exec codesign --force --sign - {} + 2>/dev/null || true
+          codesign --force --sign - "$APP" || true
+
+      - name: Package
+        run: |
+          cd "$GITHUB_WORKSPACE/mpv/build"
+          tar cJf "$RUNNER_TEMP/mpv-macos-${{ matrix.arch }}.tar.xz" mpv.app
+          shasum -a 256 "$RUNNER_TEMP/mpv-macos-${{ matrix.arch }}.tar.xz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mpv-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/mpv-macos-${{ matrix.arch }}.tar.xz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- Linux (x86_64) ---------------
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      PREFIX: ${{ github.workspace }}/ffprefix
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: mpv-player/mpv, ref: "${{ env.MPV_REF }}", path: mpv }
+
+      - name: Apply mpv source patches
+        run: |
+          shopt -s nullglob
+          for p in "$GITHUB_WORKSPACE"/patches/mpv/*.patch; do patch -p1 -F3 -d mpv -i "$p"; done
+
+      - name: Compute patch hash
+        id: keys
+        run: echo "patch_hash=$(find patches/ffmpeg -name '*.patch' | sort | xargs cat | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore patched-FFmpeg prefix
+        id: ffcache
+        if: ${{ github.event.inputs.force_rebuild_ffmpeg != 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PREFIX }}
+          key: ffmpeg-linux-x86_64-v${{ env.FFMPEG_VERSION }}-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-${{ github.run_id }}
+          restore-keys: ccache-linux-
+
+      - name: Install deps (not FFmpeg — built patched)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ccache nasm meson ninja-build pkg-config build-essential \
+            libass-dev libplacebo-dev liblcms2-dev libluajit-5.1-dev libx11-dev \
+            libwayland-dev libdrm-dev libegl1-mesa-dev libgl1-mesa-dev libpulse-dev \
+            libarchive-dev libbluray-dev librubberband-dev libzimg-dev
+
+      - name: Build patched FFmpeg
+        if: ${{ steps.ffcache.outputs.cache-hit != 'true' }}
+        env: { CC: "ccache gcc", CXX: "ccache g++" }
+        run: ./scripts/build-ffmpeg.sh
+
+      - name: Build mpv
+        env: { CC: "ccache gcc", CXX: "ccache g++", PKG_CONFIG_PATH: "${{ github.workspace }}/ffprefix/lib/pkgconfig" }
+        run: |
+          set -euxo pipefail
+          cd mpv
+          meson setup build -Dprefix="$GITHUB_WORKSPACE/mpv-out" -Dlibmpv=true
+          meson compile -C build
+          meson install -C build
+
+      - name: Package
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          tar cJf "$RUNNER_TEMP/mpv-linux-x86_64.tar.xz" -C ffprefix lib -C "$GITHUB_WORKSPACE/mpv-out" bin
+          shasum -a 256 "$RUNNER_TEMP/mpv-linux-x86_64.tar.xz" || true
+      - uses: actions/upload-artifact@v4
+        with: { name: mpv-linux-x86_64, path: "${{ runner.temp }}/mpv-linux-x86_64.tar.xz", if-no-files-found: error }
+
+  # ---------------------------------------------------------------- Windows (x86_64, mingw) ------
+  # Best-effort: cross-compiles a patched FFmpeg with mingw, then mpv, mirroring mpv's own
+  # ci/build-mingw64.sh approach. Expect to iterate this one in CI before it goes green.
+  windows:
+    runs-on: ubuntu-latest
+    env:
+      TARGET: x86_64-w64-mingw32
+      PREFIX: ${{ github.workspace }}/ffprefix
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: mpv-player/mpv, ref: "${{ env.MPV_REF }}", path: mpv }
+      - name: Compute patch hash
+        id: keys
+        run: echo "patch_hash=$(find patches/ffmpeg -name '*.patch' | sort | xargs cat | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Restore patched-FFmpeg prefix
+        id: ffcache
+        if: ${{ github.event.inputs.force_rebuild_ffmpeg != 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PREFIX }}
+          key: ffmpeg-windows-x86_64-v${{ env.FFMPEG_VERSION }}-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
+      - name: Install mingw toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 nasm meson ninja-build pkgconf yasm
+      - name: Build patched FFmpeg (mingw cross)
+        if: ${{ steps.ffcache.outputs.cache-hit != 'true' }}
+        run: |
+          set -euxo pipefail
+          work="$(mktemp -d)"; cd "$work"
+          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | tar xJ
+          cd "ffmpeg-${FFMPEG_VERSION}"
+          for p in "$GITHUB_WORKSPACE"/patches/ffmpeg/*.patch; do patch -p1 < "$p"; done
+          ./configure --prefix="$PREFIX" --arch=x86_64 --target-os=mingw32 \
+            --cross-prefix=${TARGET}- --enable-cross-compile \
+            --enable-gpl --enable-version3 --enable-shared --disable-static \
+            --disable-programs --disable-doc --enable-demuxer=mmttlv
+          make -j"$(nproc)" && make install
+      - name: Build mpv (mingw)
+        run: |
+          set -euxo pipefail
+          echo "::warning::Windows/mingw mpv build is a scaffold — wire a cross file + deps, then remove this."
+          # TODO: meson cross-file for ${TARGET}, PKG_CONFIG_PATH=$PREFIX, package mpv.exe/mpv.com + dlls.
+      - uses: actions/upload-artifact@v4
+        if: ${{ hashFiles(format('{0}/lib/*.dll', env.PREFIX)) != '' }}
+        with: { name: mpv-windows-x86_64-ffmpeg, path: "${{ env.PREFIX }}", if-no-files-found: warn }

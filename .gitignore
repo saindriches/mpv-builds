@@ -1,0 +1,5 @@
+.DS_Store
+ffprefix/
+mpv-out/
+mpv/
+.ccache/
