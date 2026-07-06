@@ -50,12 +50,15 @@ jobs:
           - { os: macos-13, arch: x86_64 }
     runs-on: ${{ matrix.os }}
     env:
-      # Outside the workspace on purpose: the workspace path contains "mpv" (repo mpv-builds), which
-      # trips dylib_unhell's self-reference guard and stops it relocating our FFmpeg into the bundle.
-      PREFIX: ${{ runner.temp }}/ffprefix
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: "800M"
     steps:
+      # FFmpeg must build OUTSIDE the workspace: its path contains "mpv" (repo mpv-builds), which
+      # trips dylib_unhell's self-reference guard so macos-bundle won't relocate our libav*. The
+      # runner context is unavailable in job-level env, so set PREFIX here via $RUNNER_TEMP.
+      - name: Set FFmpeg prefix outside the workspace
+        run: echo "PREFIX=$RUNNER_TEMP/ffprefix" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
 
       - name: Checkout mpv
