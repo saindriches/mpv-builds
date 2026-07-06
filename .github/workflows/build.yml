@@ -1,7 +1,7 @@
 name: build
 
 # Builds mpv (the player: mpv.app on macOS, mpv.exe on Windows, the binary on Linux) against an
-# FFmpeg compiled from source with patches/ffmpeg/*.patch applied — today the MMT/TLV demuxer, so
+# FFmpeg compiled from source with patches/ffmpeg/*.patch applied; today the MMT/TLV demuxer, so
 # mpv plays ISDB-S3 4K/8K .mmts natively. Framework is general: drop more .patch files into
 # patches/<dep>/ and they apply in order.
 #
@@ -89,7 +89,7 @@ jobs:
           key: ccache-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_id }}
           restore-keys: ccache-${{ matrix.os }}-${{ matrix.arch }}-
 
-      - name: Install toolchain + mpv deps (not FFmpeg — we build that patched)
+      - name: Install toolchain + mpv deps (not FFmpeg; we build that patched)
         run: |
           brew update
           brew install ccache nasm meson ninja pkg-config \
@@ -181,7 +181,7 @@ jobs:
           key: ccache-linux-${{ github.run_id }}
           restore-keys: ccache-linux-
 
-      - name: Install deps (not FFmpeg — built patched)
+      - name: Install deps (not FFmpeg; built patched)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -264,7 +264,7 @@ jobs:
       - name: Build mpv (mingw)
         run: |
           set -euxo pipefail
-          echo "::warning::Windows/mingw mpv build is a scaffold — wire a cross file + deps, then remove this."
+          echo "::warning::Windows/mingw mpv build is a scaffold; wire a cross file + deps, then remove this."
           # TODO: meson cross-file for ${TARGET}, PKG_CONFIG_PATH=$PREFIX, package mpv.exe/mpv.com + dlls.
       - uses: actions/upload-artifact@v4
         if: ${{ hashFiles(format('{0}/lib/*.dll', env.PREFIX)) != '' }}

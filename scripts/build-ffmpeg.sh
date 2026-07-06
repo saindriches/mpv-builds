@@ -14,7 +14,7 @@ set -euxo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [ -f "$PREFIX/lib/pkgconfig/libavformat.pc" ]; then
-  echo "ffmpeg already present at $PREFIX (cache hit) — skipping build"
+  echo "ffmpeg already present at $PREFIX (cache hit), skipping build"
   exit 0
 fi
 
