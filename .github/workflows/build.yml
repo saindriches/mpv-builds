@@ -30,6 +30,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FFMPEG_VERSION: "8.0.1"
   MPV_REF: ${{ github.event.inputs.mpv_ref || 'master' }}
@@ -169,7 +173,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PREFIX }}
-          key: ffmpeg-linux-x86_64-v${{ env.FFMPEG_VERSION }}-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
+          key: ffmpeg-linux-x86_64-v${{ env.FFMPEG_VERSION }}-lp-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
 
       - uses: actions/cache@v4
         with:
@@ -181,15 +185,25 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ccache nasm meson ninja-build pkg-config build-essential \
-            libass-dev libplacebo-dev liblcms2-dev libluajit-5.1-dev libx11-dev \
+            ccache nasm meson ninja-build pkg-config build-essential git \
+            libass-dev liblcms2-dev libluajit-5.1-dev libx11-dev \
             libwayland-dev libdrm-dev libegl1-mesa-dev libgl1-mesa-dev libpulse-dev \
-            libarchive-dev libbluray-dev librubberband-dev libzimg-dev
+            libarchive-dev libbluray-dev librubberband-dev libzimg-dev \
+            glslang-tools libshaderc-dev libvulkan-dev python3-jinja2
 
-      - name: Build patched FFmpeg
+      - name: Build patched FFmpeg + libplacebo
         if: ${{ steps.ffcache.outputs.cache-hit != 'true' }}
         env: { CC: "ccache gcc", CXX: "ccache g++" }
-        run: ./scripts/build-ffmpeg.sh
+        run: |
+          set -euxo pipefail
+          ./scripts/build-ffmpeg.sh
+          # Ubuntu's libplacebo (6.x) is older than mpv master needs (>=7.360.1) and mpv ships no
+          # wrap for it, so build it from source into the same prefix. Minimal: no demos/tests.
+          git clone --depth 1 --recurse-submodules https://github.com/haasn/libplacebo.git /tmp/libplacebo
+          meson setup /tmp/libplacebo/build /tmp/libplacebo \
+            --prefix="$PREFIX" --buildtype=release -Ddemos=false -Dtests=false
+          meson compile -C /tmp/libplacebo/build
+          meson install -C /tmp/libplacebo/build
 
       - name: Build mpv
         env: { CC: "ccache gcc", CXX: "ccache g++", PKG_CONFIG_PATH: "${{ github.workspace }}/ffprefix/lib/pkgconfig" }
