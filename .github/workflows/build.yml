@@ -125,10 +125,23 @@ jobs:
           arch -x86_64 /usr/local/bin/brew --version
 
       - name: Install toolchain + mpv deps (not FFmpeg; we build that patched)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
           set -euxo pipefail
+          # On the x86_64 half the /usr/local Homebrew must symlink its python (a meson dependency)
+          # into /usr/local/bin, but the runner preinstalls a Python.framework whose stray symlinks
+          # (python3, pip3, idle3...) already occupy those paths and make "brew link" fail. Clear
+          # them first so the brew python links cleanly. The arm64 /opt/homebrew tree is untouched.
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            sudo rm -f /usr/local/bin/2to3* /usr/local/bin/idle3* /usr/local/bin/pydoc3* \
+                       /usr/local/bin/python3 /usr/local/bin/python3-config \
+                       /usr/local/bin/python3.* /usr/local/bin/pip3 /usr/local/bin/pip3.* || true
+          fi
           $ARCH_RUN "$BREW" update
-          $ARCH_RUN "$BREW" install ccache nasm meson ninja pkg-config \
+          # --overwrite so a formula that still collides on link takes the path rather than failing.
+          $ARCH_RUN "$BREW" install --overwrite ccache nasm meson ninja pkg-config \
             luajit libass libplacebo little-cms2 uchardet mujs \
             libarchive libbluray rubberband zimg libcaca libcdio-paranoia libdvdnav \
             molten-vk vulkan-loader vulkan-headers rust
