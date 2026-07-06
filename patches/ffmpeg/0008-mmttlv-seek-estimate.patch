@@ -1,7 +1,7 @@
 From 2c5e618b7a16b598c3270d106b9cf90fb1d4dd0b Mon Sep 17 00:00:00 2001
 From: Rainbaby <rainbaby@outlook.jp>
 Date: Mon, 6 Jul 2026 20:02:28 +0900
-Subject: [PATCH 8/8] avformat/mmttlv: seek by byte-position estimate, not a
+Subject: [PATCH 3/3] avformat/mmttlv: seek by byte-position estimate, not a
  timestamp search
 
 The timestamp binary search reset state, re-acquired signaling and reassembled

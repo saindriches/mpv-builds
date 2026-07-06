@@ -1,7 +1,7 @@
 From 864420f7a4b9b237f180e5148b11c5d1000df6df Mon Sep 17 00:00:00 2001
 From: Rainbaby <rainbaby@outlook.jp>
 Date: Mon, 6 Jul 2026 19:52:49 +0900
-Subject: [PATCH 7/8] avformat/mmttlv: seed video geometry and colour from
+Subject: [PATCH 2/3] avformat/mmttlv: seed video geometry and colour from
  MH-video-component
 
 Parse video_resolution, aspect_ratio, frame_rate and transfer_characteristics
