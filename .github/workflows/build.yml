@@ -201,12 +201,13 @@ jobs:
           # wrap for it, so build it from source into the same prefix. Minimal: no demos/tests.
           git clone --depth 1 --recurse-submodules https://github.com/haasn/libplacebo.git /tmp/libplacebo
           meson setup /tmp/libplacebo/build /tmp/libplacebo \
-            --prefix="$PREFIX" --buildtype=release -Ddemos=false -Dtests=false
+            --prefix="$PREFIX" --libdir=lib --buildtype=release -Ddemos=false -Dtests=false
           meson compile -C /tmp/libplacebo/build
           meson install -C /tmp/libplacebo/build
 
       - name: Build mpv
-        env: { CC: "ccache gcc", CXX: "ccache g++", PKG_CONFIG_PATH: "${{ github.workspace }}/ffprefix/lib/pkgconfig" }
+        # ffmpeg installs .pc under lib/pkgconfig; a cached libplacebo may sit in the multiarch dir.
+        env: { CC: "ccache gcc", CXX: "ccache g++", PKG_CONFIG_PATH: "${{ github.workspace }}/ffprefix/lib/pkgconfig:${{ github.workspace }}/ffprefix/lib/x86_64-linux-gnu/pkgconfig" }
         run: |
           set -euxo pipefail
           cd mpv
