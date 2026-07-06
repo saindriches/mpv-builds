@@ -1,30 +1,28 @@
-From 1bd5360ea5a3fe96bc67087c468c393f2e9aa461 Mon Sep 17 00:00:00 2001
+From 9d88c06a3da14c2f1bf2d27d1f880e01f4eca7de Mon Sep 17 00:00:00 2001
 From: Rainbaby <rainbaby@outlook.jp>
-Date: Tue, 7 Jul 2026 06:55:53 +0900
-Subject: [PATCH 3/5] avformat/mmttlv: build HEVC extradata from in-band
+Date: Fri, 3 Jul 2026 22:19:25 +0900
+Subject: [PATCH 3/4] avformat/mmttlv: build HEVC extradata from in-band
  parameter sets
 
-The MFU stream carries VPS/SPS/PPS in-band only, so the HEVC decoder
-loses them across a seek or flush. Capture the parameter-set NALs and
-expose them as Annex-B codecpar extradata, rebuilding whenever a set
-changes.
+The MFU stream carries VPS/SPS/PPS in-band only, so the HEVC decoder loses them
+across a seek or flush. Capture the parameter-set NALs and expose them as
+Annex-B codecpar->extradata, rebuilding it whenever a set changes.
 
 Signed-off-by: Rainbaby <rainbaby@outlook.jp>
 ---
- libavformat/mmtp.c | 80 ++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 80 insertions(+)
+ libavformat/mmtp.c | 79 ++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 79 insertions(+)
 
 diff --git a/libavformat/mmtp.c b/libavformat/mmtp.c
-index aceaf7c..77a917e 100644
+index 57e838e..d3cb9ab 100644
 --- a/libavformat/mmtp.c
 +++ b/libavformat/mmtp.c
-@@ -160,9 +160,23 @@ struct Streams {
-     int64_t  au_pos;
-     int      au_flags;
+@@ -152,9 +152,22 @@ struct Streams {
+     int64_t  offset;
+     int      flags;
  
-+    // VPS/SPS/PPS captured from the MFUs (raw NALs); the parameter sets are
-+    // otherwise in-band only, so the decoder would lose them across a seek
-+    // or flush. [0]=VPS [1]=SPS [2]=PPS.
++    // VPS/SPS/PPS captured from the MFUs (raw NALs), used to build extradata;
++    // the parameter sets are otherwise in-band only. [0]=VPS [1]=SPS [2]=PPS.
 +    struct {
 +        uint8_t *data;
 +        int      size;
@@ -42,7 +40,7 @@ index aceaf7c..77a917e 100644
  struct MMTPContext {
      struct FragmentAssembler *assembler;
      struct Streams           *streams;
-@@ -1374,6 +1388,68 @@ static int emit_closed_caption_mfu(MMTPContext *ctx, struct Streams *st,
+@@ -1361,6 +1374,68 @@ static int emit_closed_caption_mfu(MMTPContext *ctx, struct Streams *st,
      return 0;
  }
  
@@ -56,7 +54,7 @@ index aceaf7c..77a917e 100644
 +
 +    for (i = 0; i < 3; i++) {
 +        if (st->hevc_ps[i].data == NULL)
-+            return; // wait until VPS, SPS and PPS have all been seen
++            return; // wait until VPS + SPS + PPS have all been seen
 +        total += sizeof(start_code) + st->hevc_ps[i].size;
 +    }
 +
@@ -76,7 +74,7 @@ index aceaf7c..77a917e 100644
 +    par->extradata_size = total;
 +}
 +
-+// Keep a copy of each parameter-set NAL, rebuilding extradata on a change.
++// Keep a copy of each parameter-set NAL, rebuilding extradata when one changes.
 +static void hevc_capture_parameter_set(struct Streams *st,
 +                                       const uint8_t *nal, int nal_size)
 +{
@@ -95,7 +93,7 @@ index aceaf7c..77a917e 100644
 +    if (st->hevc_ps[idx].data != NULL &&
 +        st->hevc_ps[idx].size == nal_size &&
 +        memcmp(st->hevc_ps[idx].data, nal, nal_size) == 0)
-+        return;
++        return; // already captured, unchanged
 +
 +    copy = av_malloc(nal_size);
 +    if (copy == NULL)
@@ -111,7 +109,7 @@ index aceaf7c..77a917e 100644
  static int
  emit_packet(MMTPContext *ctx, struct Streams *st, uint8_t *data, int size)
  {
-@@ -1462,6 +1538,7 @@ static int consume_mfu(MMTPContext *ctx, GetByteContext *gbc)
+@@ -1447,6 +1522,7 @@ static int consume_mfu(MMTPContext *ctx, GetByteContext *gbc)
          buf[2] = 0x01;
          bytestream2_get_bufferu(gbc, buf + 3, size);
          memset(buf + 3 + size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
@@ -119,7 +117,7 @@ index aceaf7c..77a917e 100644
          err = emit_packet(ctx, st, buf, size + 3);
          av_free(buf);
          return err;
-@@ -1729,6 +1806,9 @@ void ff_mmtp_parse_close(MMTPContext *ctx)
+@@ -1712,6 +1788,9 @@ void ff_mmtp_parse_close(MMTPContext *ctx)
          if (streams->parser != NULL) av_parser_close(streams->parser);
          av_free(streams->timestamp_descriptor);
          av_free(streams->ext_timestamp_descriptor);
@@ -129,6 +127,3 @@ index aceaf7c..77a917e 100644
          av_free(streams);
          streams = next;
      }
--- 
-2.50.1 (Apple Git-155)
-

@@ -1,69 +1,304 @@
-From e9ed474dedd1eea68be37c83ab13855271ea62ff Mon Sep 17 00:00:00 2001
+From ae0b49308f6be271088b68bf4c34e0e620b2cf3d Mon Sep 17 00:00:00 2001
 From: Rainbaby <rainbaby@outlook.jp>
-Date: Fri, 3 Jul 2026 22:19:26 +0900
-Subject: [PATCH 4/4] avformat/mmttlv: expose program and audio-track metadata
+Date: Tue, 7 Jul 2026 06:57:38 +0900
+Subject: [PATCH 4/5] avformat/mmttlv: stream metadata from MMT signaling
 
-Adopt only the MH-EIT present section for the running program, expose the
-MH-audio-component text as the audio track title and mark the main component
-AV_DISPOSITION_DEFAULT, and raise a metadata-update event when the program or a
-track title changes so a player follows program boundaries.
+Seed audio channels and sample rate from MH-audio-component (a LATM
+header can under-report 5.1 as stereo) and video geometry, frame rate
+and BT.2020 HLG/PQ colour from MH-video-component. Adopt only the
+MH-EIT present section (the following section would flip the title to
+the next program), and raise metadata-update events when signaled
+values or titles change, covering program transitions and seeks.
 
 Signed-off-by: Rainbaby <rainbaby@outlook.jp>
 ---
- libavformat/mmtp.c | 58 ++++++++++++++++++++++++++++++++++++++++++----
- 1 file changed, 53 insertions(+), 5 deletions(-)
+ libavformat/mmtp.c | 250 +++++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 218 insertions(+), 32 deletions(-)
 
 diff --git a/libavformat/mmtp.c b/libavformat/mmtp.c
-index d3cb9ab..ef7e956 100644
+index 77a917e..1e7486a 100644
 --- a/libavformat/mmtp.c
 +++ b/libavformat/mmtp.c
-@@ -273,10 +273,13 @@ parse_video_component_descriptor(AVStream *stream, GetByteContext *gbc)
+@@ -24,6 +24,7 @@
+ #include "libavcodec/bytestream.h"
+ #include "libavcodec/avcodec.h"
+ #include "libavutil/avassert.h"
++#include "libavutil/channel_layout.h"
+ #include "libavutil/mem.h"
+ #include "demux.h"
+ #include "internal.h"
+@@ -168,6 +169,12 @@ struct Streams {
+         int      size;
+     } hevc_ps[3];
+ 
++    // Last signaled MH-video/audio-component values (-1 = not yet seen), to
++    // detect a refresh that changed them: a program transition, or a landing
++    // after a seek.
++    int video_sig;
++    int audio_sig;
++
+     struct Streams *next;
+ };
+ 
+@@ -219,6 +226,8 @@ find_or_allocate_stream(struct MMTPContext *ctx, uint16_t pid)
+     streams->next   = ctx->streams;
+     streams->offset = -1;
+     streams->au_pos = -1;
++    streams->video_sig = -1;
++    streams->audio_sig = -1;
+     ctx->streams    = streams;
+     return streams;
+ }
+@@ -239,8 +248,40 @@ enum {
+     MH_SHORT_EVENT_DESCRIPTOR         = 0xF001,
+ };
+ 
++// MH-video-component video_resolution code -> luma height. 0 leaves it to
++// the ES.
++static int mmt_video_height(int code)
++{
++    switch (code) {
++    case 1: return 180;  case 2: return 240;  case 3: return 480;
++    case 4: return 720;  case 5: return 1080; case 6: return 2160;
++    case 7: return 4320; default: return 0;
++    }
++}
++
++// MH-video-component video_frame_rate code -> rate. A zero num means
++// "unknown".
++static AVRational mmt_video_frame_rate(int code)
++{
++    switch (code) {
++    case 1:  return (AVRational){ 15, 1 };
++    case 2:  return (AVRational){ 24000, 1001 };
++    case 3:  return (AVRational){ 24, 1 };
++    case 4:  return (AVRational){ 25, 1 };
++    case 5:  return (AVRational){ 30000, 1001 };
++    case 6:  return (AVRational){ 30, 1 };
++    case 7:  return (AVRational){ 50, 1 };
++    case 8:  return (AVRational){ 60000, 1001 };
++    case 9:  return (AVRational){ 60, 1 };
++    case 10: return (AVRational){ 100, 1 };
++    case 11: return (AVRational){ 120000, 1001 };
++    case 12: return (AVRational){ 120, 1 };
++    default: return (AVRational){ 0, 1 };
++    }
++}
++
  static int
- parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
+-parse_video_component_descriptor(AVStream *stream, GetByteContext *gbc)
++parse_video_component_descriptor(struct Streams *st, GetByteContext *gbc)
+ {
+     uint8_t descriptor_length;
+     uint8_t language_code[4];
+@@ -255,38 +296,114 @@ parse_video_component_descriptor(AVStream *stream, GetByteContext *gbc)
+         return AVERROR_INVALIDDATA;
+     {
+         GetByteContext ngbc;
+-        bytestream2_init(&ngbc, gbc->buffer, descriptor_length);
+-        /*
+-         * skip:
+-         * - video_resolution
+-         * - video_aspect_ratio
+-         * - video_scan_flag
+-         * - reserved
+-         * - video_frame_rate
+-         * - component_tag
+-         * - video_transfer_characteristics
+-         * - reserved
+-         */
+-        bytestream2_skip(&ngbc, (4 + 4 + 1 + 2 + 5 + 16 + 4 + 4) / 8);
+-
+-        if (bytestream2_get_bytes_left(&ngbc) < 3)
++        int     res, aspect, frame_rate_code, transfer;
++        uint8_t b0, b1;
++
++        // resolution|aspect, scan|reserved|frame_rate, component_tag(2),
++        // transfer|reserved, language(3)
++        if (descriptor_length < 8)
+             return AVERROR_INVALIDDATA;
++        bytestream2_init(&ngbc, gbc->buffer, descriptor_length);
++
++        b0              = bytestream2_get_byteu(&ngbc);
++        b1              = bytestream2_get_byteu(&ngbc);
++        res             = b0 >> 4;
++        aspect          = b0 & 0x0F;
++        frame_rate_code = b1 & 0x1F;
++        bytestream2_skipu(&ngbc, 2);
++        transfer        = bytestream2_get_byteu(&ngbc) >> 4;
+         bytestream2_get_bufferu(&ngbc, language_code, 3);
+         language_code[3] = '\0';
++
++        if (st != NULL) {
++            AVStream   *stream = st->stream;
++            int        h   = mmt_video_height(res);
++            AVRational fr  = mmt_video_frame_rate(frame_rate_code);
++            int        sig = res << 12 | aspect << 8 | frame_rate_code << 4 |
++                             transfer;
++            // On first sight only seed what the ES has not set (it overrides
++            // whatever it carries itself); a later refresh with different
++            // values is a program transition, or a landing after a seek, so
++            // apply it and raise an event.
++            int refresh = st->video_sig >= 0 && st->video_sig != sig;
++            st->video_sig = sig;
++
++            if (h && (refresh || stream->codecpar->height <= 0)) {
++                stream->codecpar->height = h;
++                stream->codecpar->width  = aspect == 1 ? h * 4 / 3 : h * 16 / 9;
++            }
++            if (fr.num && (refresh || !stream->avg_frame_rate.num))
++                stream->avg_frame_rate = stream->r_frame_rate = fr;
++            // STD-B60 Table 7-51: transfer 3/4/5 (BT.2020/PQ/HLG) imply
++            // BT.2020 colour.
++            if (transfer >= 3 && transfer <= 5 &&
++                (refresh ||
++                 stream->codecpar->color_trc <= AVCOL_TRC_UNSPECIFIED)) {
++                stream->codecpar->color_trc =
++                    transfer == 5 ? AVCOL_TRC_ARIB_STD_B67 :
++                    transfer == 4 ? AVCOL_TRC_SMPTE2084    :
++                                    AVCOL_TRC_BT2020_10;
++                stream->codecpar->color_primaries = AVCOL_PRI_BT2020;
++                stream->codecpar->color_space     = AVCOL_SPC_BT2020_NCL;
++            } else if (refresh && (transfer < 3 || transfer > 5)) {
++                stream->codecpar->color_trc       = AVCOL_TRC_UNSPECIFIED;
++                stream->codecpar->color_primaries = AVCOL_PRI_UNSPECIFIED;
++                stream->codecpar->color_space     = AVCOL_SPC_UNSPECIFIED;
++            }
++            if (refresh)
++                stream->event_flags |= AVSTREAM_EVENT_FLAG_METADATA_UPDATED;
++        }
+     }
+     bytestream2_skipu(gbc, descriptor_length);
+ 
+-    if (stream == NULL) return 0;
+-    return av_dict_set(&stream->metadata, "language", language_code, 0);
++    if (st == NULL) return 0;
++    return av_dict_set(&st->stream->metadata, "language", language_code, 0);
++}
++
++// ARIB STD-B60 Table 7-60 audio_mode -> channel count. 0 leaves it to the ES.
++static int mmt_audio_mode_channels(int mode)
++{
++    switch (mode) {
++    case 0x01: return 1;   // 1/0
++    case 0x02: return 2;   // 1/0 + 1/0 dual mono
++    case 0x03: return 2;   // 2/0
++    case 0x05: return 3;   // 3/0
++    case 0x07: return 4;   // 3/1
++    case 0x08: return 5;   // 3/2
++    case 0x09: return 6;   // 3/2 + LFE (5.1)
++    case 0x0c: return 8;   // 5/2.1 (7.1)
++    case 0x11: return 24;  // 22.2
++    default:   return 0;
++    }
++}
++
++// MH-audio-component sampling_rate code -> Hz. 0 leaves it to the ES.
++static int mmt_audio_sampling_rate(int code)
++{
++    switch (code) {
++    case 0x1: return 16000;
++    case 0x2: return 22050;
++    case 0x3: return 24000;
++    case 0x5: return 32000;
++    case 0x6: return 44100;
++    case 0x7: return 48000;
++    default:  return 0;
++    }
+ }
+ 
+ static int
+-parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
++parse_mh_audio_component_descriptor(struct Streams *st, GetByteContext *gbc)
  {
 -    uint8_t descriptor_length;
 -    uint8_t stream_content;
 -    uint8_t stream_type;
 -    uint8_t language_code[4];
++    AVStream      *stream = st != NULL ? st->stream : NULL;
 +    uint8_t       descriptor_length;
 +    uint8_t       stream_content;
 +    uint8_t       stream_type;
 +    uint8_t       language_code[4];
-+    const uint8_t *text     = NULL;
-+    int           text_len  = 0;
-+    int           main_audio = 0;
++    const uint8_t *text          = NULL;
++    int           text_len       = 0;
++    int           main_audio     = 0;
++    int           audio_mode     = 0;
++    int           sampling_code  = 0;
  
      if (bytestream2_get_bytes_left(gbc) < (16 + 8) / 8)
          return AVERROR_INVALIDDATA;
-@@ -313,6 +316,7 @@ parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
+@@ -310,12 +427,11 @@ parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
+         byte           = bytestream2_get_byteu(&ngbc);
+         stream_content = byte & 0b1111;
+ 
+-        /*
+-         * skip:
+-         * - component_type
+-         * - component_tag
+-         */
+-        bytestream2_skipu(&ngbc, 3);
++        // component_type: dialog(1) | handicapped(2) | audio_mode(5)
++        audio_mode = bytestream2_get_byteu(&ngbc) & 0x1F;
++
++        // skip: component_tag
++        bytestream2_skipu(&ngbc, 2);
+         stream_type = bytestream2_get_byteu(&ngbc);
+ 
+         // skip: simulcast_group_tag
+@@ -323,6 +439,8 @@ parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
  
          byte                  = bytestream2_get_byteu(&ngbc);
          ES_multi_lingual_flag = byte >> 7;
 +        main_audio            = (byte >> 6) & 1;
++        sampling_code         = (byte >> 1) & 0x07;
  
          bytestream2_get_bufferu(&ngbc, language_code, 3);
          language_code[3] = '\0';
-@@ -322,6 +326,10 @@ parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
+@@ -332,6 +450,10 @@ parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
                  return AVERROR_INVALIDDATA;
              bytestream2_skipu(&ngbc, 3);
          }
 +
-+        // remaining bytes are the component description text
++        // the remaining bytes are the component description text
 +        text     = ngbc.buffer;
 +        text_len = bytestream2_get_bytes_left(&ngbc);
      }
      bytestream2_skipu(gbc, descriptor_length);
  
-@@ -343,6 +351,16 @@ parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
+@@ -353,6 +475,39 @@ parse_mh_audio_component_descriptor(AVStream *stream, GetByteContext *gbc)
          break;
      }
  
++    // The signaling carries the authoritative channel count and sample rate;
++    // the LATM ES header can under-report (a 5.1 program whose config
++    // declares stereo), so seed them here and let the ES refine the rest.
++    {
++        int channels = mmt_audio_mode_channels(audio_mode);
++        int rate     = mmt_audio_sampling_rate(sampling_code);
++        int sig      = audio_mode << 9 | sampling_code << 1 | main_audio;
++
++        // a refresh with different values is a program transition, or a
++        // landing after a seek
++        if (st->audio_sig >= 0 && st->audio_sig != sig)
++            stream->event_flags |= AVSTREAM_EVENT_FLAG_METADATA_UPDATED;
++        st->audio_sig = sig;
++
++        if (channels) {
++            av_channel_layout_uninit(&stream->codecpar->ch_layout);
++            av_channel_layout_default(&stream->codecpar->ch_layout, channels);
++        }
++        if (rate)
++            stream->codecpar->sample_rate = rate;
++    }
++
 +    if (main_audio)
 +        stream->disposition |= AV_DISPOSITION_DEFAULT;
 +    if (text_len > 0) {
 +        char *title = av_strndup(text, text_len);
-+        const AVDictionaryEntry *cur = av_dict_get(stream->metadata, "title", NULL, 0);
-+        // flag the change (e.g. a program boundary) so the player re-reads
++        const AVDictionaryEntry *cur =
++            av_dict_get(stream->metadata, "title", NULL, 0);
++        // flag the change (a program boundary) so the player re-reads it
 +        if (title && (cur == NULL || strcmp(cur->value, title) != 0))
 +            stream->event_flags |= AVSTREAM_EVENT_FLAG_METADATA_UPDATED;
 +        av_dict_set(&stream->metadata, "title", title, AV_DICT_DONT_STRDUP_VAL);
@@ -71,13 +306,27 @@ index d3cb9ab..ef7e956 100644
      return av_dict_set(&stream->metadata, "language", language_code, 0);
  }
  
-@@ -736,6 +754,14 @@ static int parse_mh_short_event_descriptor(
+@@ -701,11 +856,11 @@ static int parse_mpt_descriptor(struct Streams *streams, GetByteContext *gbc)
+     case MPU_TIMESTAMP_DESCRIPTOR:
+         return parse_mpu_timestamp_descriptor(streams, gbc);
+     case VIDEO_COMPONENT_DESCRIPTOR:
+-        return parse_video_component_descriptor(streams->stream, gbc);
++        return parse_video_component_descriptor(streams, gbc);
+     case MH_STREAM_IDENTIFIER_DESCRIPTOR:
+         return parse_stream_identifier_descriptor(streams->stream, gbc);
+     case MH_AUDIO_COMPONENT_DESCRIPTOR:
+-        return parse_mh_audio_component_descriptor(streams->stream, gbc);
++        return parse_mh_audio_component_descriptor(streams, gbc);
+     case MH_DATA_COMPONENT_DESCRIPTOR:
+         return parse_mh_data_component_descriptor(streams->stream, gbc);
+     case MPU_EXTENDED_TIMESTAMP_DESCRIPTOR:
+@@ -748,6 +903,14 @@ static int parse_mh_short_event_descriptor(
          event_name = av_strndup(ngbc.buffer, event_name_length);
          bytestream2_skipu(&ngbc, event_name_length);
  
 +        {
-+            // present event changes at a program boundary: flag it so the
-+            // player re-reads the title rather than showing the one from open
++            // The present event changes at a program boundary: flag it so a
++            // player re-reads the title instead of keeping the one from open.
 +            const AVDictionaryEntry *cur =
 +                av_dict_get(ctx->program->metadata, "title", NULL, 0);
 +            if (event_name && (cur == NULL || strcmp(cur->value, event_name) != 0))
@@ -86,7 +335,7 @@ index d3cb9ab..ef7e956 100644
          av_dict_set(&ctx->program->metadata, "language", language_code, 0);
          av_dict_set(&ctx->program->metadata, "title", event_name,
                      AV_DICT_DONT_STRDUP_VAL);
-@@ -960,10 +986,32 @@ static int parse_mh_eit_table(MMTPContext *ctx, GetByteContext *gbc)
+@@ -972,10 +1135,33 @@ static int parse_mh_eit_table(MMTPContext *ctx, GetByteContext *gbc)
      if (bytestream2_get_bytes_left(gbc) < section_length || section_length < 4)
          return AVERROR_INVALIDDATA;
      {
@@ -95,28 +344,32 @@ index d3cb9ab..ef7e956 100644
          bytestream2_init(&ngbc, gbc->buffer, section_length - 4);
  
 -        bytestream2_skip(&ngbc, (16 + 2 + 5 + 1 + 8 + 8 + 16 + 16 + 8 + 8) / 8);
-+        /* MH-EIT[p/f] header: service_id(16) reserved+version+current_next_indicator(8)
-+         * section_number(8) last_section_number(8) TLV_stream_id(16) original_network_id(16)
-+         * segment_last_section_number(8) last_table_id(8) = 11 bytes. */
++        // MH-EIT[p/f] header: service_id(16), reserved+version+
++        // current_next_indicator(8), section_number(8),
++        // last_section_number(8), TLV_stream_id(16), original_network_id(16),
++        // segment_last_section_number(8), last_table_id(8)
 +        if (bytestream2_get_bytes_left(&ngbc) <
 +            (16 + 8 + 8 + 8 + 16 + 16 + 8 + 8) / 8) {
 +            bytestream2_skipu(gbc, section_length);
 +            return 0;
 +        }
-+        bytestream2_skipu(&ngbc, 2);                    /* service_id */
-+        version_byte   = bytestream2_get_byteu(&ngbc);  /* .. + current_next_indicator */
++        bytestream2_skipu(&ngbc, 2);
++        version_byte   = bytestream2_get_byteu(&ngbc);
 +        section_number = bytestream2_get_byteu(&ngbc);
-+        bytestream2_skipu(&ngbc, 7);                    /* last_section_number .. last_table_id */
++        bytestream2_skipu(&ngbc, 7);
 +
-+        /* In MH-EIT[p/f], section 0 carries the PRESENT (on-air) event and section 1 the
-+         * FOLLOWING (next) event. Only the present event names the current program; parsing the
-+         * following section's short_event_descriptor would av_dict_set-overwrite the program's
-+         * title/description with the NEXT program's (the "current flips with next" bug). Ignore
-+         * any non-present section, and any section not yet current (current_next_indicator == 0). */
++        // In MH-EIT[p/f], section 0 carries the PRESENT (on-air) event and
++        // section 1 the FOLLOWING one. Only the present event names the
++        // running program; parsing the following section would overwrite the
++        // program title with the NEXT program's. Ignore any non-present
++        // section, and any section not yet current.
 +        if (section_number != 0 || !(version_byte & 1)) {
 +            bytestream2_skipu(gbc, section_length);
 +            return 0;
 +        }
  
-         while (bytestream2_get_bytes_left(&ngbc) > 0) {
-             uint16_t descriptors_loop_length;
+         // 10 bytes of event header plus the 2-byte descriptor loop length; a
+         // shorter tail would be read past its end below
+-- 
+2.50.1 (Apple Git-155)
+
