@@ -394,8 +394,9 @@ jobs:
           msystem: MINGW64
           update: true
           install: >-
-            base-devel git
+            base-devel git zip
             mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-tools
             mingw-w64-x86_64-ccache
             mingw-w64-x86_64-meson
             mingw-w64-x86_64-ninja
@@ -501,7 +502,7 @@ jobs:
                   [ -f "$out/$(basename "$dep")" ] || cp "$dep" "$out/"
                 done
           }
-          # ntldd ships with mingw-w64-x86_64-toolchain; if missing, fall back to a broad copy.
+          # ntldd (mingw-w64-x86_64-tools) walks the DLL tree; if missing, fall back to a broad copy.
           if command -v ntldd >/dev/null 2>&1; then
             copy_deps "$out/mpv.exe"
             for d in "$out"/*.dll; do copy_deps "$d"; done
@@ -509,8 +510,9 @@ jobs:
             echo "::warning::ntldd not found; copying the full mingw64 DLL set (larger zip)"
             cp /mingw64/bin/*.dll "$out/" 2>/dev/null || true
           fi
+          # Zip with the MSYS2 "zip" package (7z is not on the MINGW64 PATH).
           cd "$(dirname "$out")"
-          7z a "$(cygpath -u "$RUNNER_TEMP")/mpv-windows-x86_64.zip" "./$(basename "$out")"/* >/dev/null
+          zip -qr "$(cygpath -u "$RUNNER_TEMP")/mpv-windows-x86_64.zip" "$(basename "$out")"
           ls -l "$out"
 
       - uses: actions/upload-artifact@v4
