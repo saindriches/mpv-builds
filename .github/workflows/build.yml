@@ -50,7 +50,9 @@ jobs:
           - { os: macos-13, arch: x86_64 }
     runs-on: ${{ matrix.os }}
     env:
-      PREFIX: ${{ github.workspace }}/ffprefix
+      # Outside the workspace on purpose: the workspace path contains "mpv" (repo mpv-builds), which
+      # trips dylib_unhell's self-reference guard and stops it relocating our FFmpeg into the bundle.
+      PREFIX: ${{ runner.temp }}/ffprefix
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: "800M"
     steps:
@@ -80,7 +82,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PREFIX }}
-          key: ffmpeg-${{ matrix.os }}-${{ matrix.arch }}-v${{ env.FFMPEG_VERSION }}-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
+          key: ffmpeg-${{ matrix.os }}-${{ matrix.arch }}-v${{ env.FFMPEG_VERSION }}-rt-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
 
       - name: ccache
         uses: actions/cache@v4
@@ -125,15 +127,16 @@ jobs:
           meson compile -C build macos-bundle       # -> build/mpv.app
           test -d build/mpv.app || { echo "::error::mpv.app not produced"; exit 1; }
 
-      - name: Embed patched FFmpeg dylibs + ad-hoc sign
+      - name: Verify bundle launches (no build-path leaks)
         run: |
           set -euxo pipefail
-          APP="$GITHUB_WORKSPACE/mpv/build/mpv.app"
-          FW="$APP/Contents/Frameworks"; mkdir -p "$FW"
-          # mpv.app links the dylibs by @rpath; ship our patched libav* alongside so it loads them.
-          cp -p "$PREFIX"/lib/lib{avcodec,avformat,avutil,swscale,swresample,avfilter,postproc}*.dylib "$FW"/ 2>/dev/null || true
-          find "$FW" -name '*.dylib' -exec codesign --force --sign - {} + 2>/dev/null || true
-          codesign --force --sign - "$APP" || true
+          APP="$GITHUB_WORKSPACE/mpv/build/mpv.app"; BIN="$APP/Contents/MacOS/mpv"
+          # With the FFmpeg prefix outside the workspace, macos-bundle (dylib_unhell) relocates our
+          # libav* into Contents/MacOS/lib and rewrites the load paths. Fail loudly if any leak.
+          if otool -L "$BIN" | grep -q 'ffprefix/lib/'; then
+            echo "::error::mpv still references the build prefix"; otool -L "$BIN"; exit 1; fi
+          test -f "$APP/Contents/MacOS/lib/libavcodec.62.dylib" || { echo "::error::libavcodec not relocated into the bundle"; exit 1; }
+          "$BIN" --version
 
       - name: Package
         run: |
