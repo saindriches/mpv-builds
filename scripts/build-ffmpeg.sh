@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Build FFmpeg $FFMPEG_VERSION from source with patches/ffmpeg/*.patch applied, installed to $PREFIX.
+# Build FFmpeg from our MMT/TLV fork branch ($FFMPEG_REPO @ $FFMPEG_REF), installed to $PREFIX.
 # Shared by the macOS and Linux jobs (both POSIX: configure + make). Windows uses the mingw job.
 #
-# The config is "full enough for mpv playback": FFmpeg enables its decoders/demuxers/parsers by
-# default, so we only turn OFF what a player never needs (programs, docs) and turn ON the platform
-# hwaccel and our mmttlv demuxer. No encoders/external codec libs are needed for playback, which
-# keeps the build fast and dependency-light.
+# The MMT/TLV demuxer (ARIB STD-B32) is already in the fork branch (saindriches/FFmpeg @ mmt-tlv),
+# so there is no patch step. The config is "full enough for mpv playback": FFmpeg enables its
+# decoders/demuxers/parsers by default, so we only turn OFF what a player never needs (programs,
+# docs) and turn ON the platform hwaccel and the mmttlv demuxer.
 #
 # Idempotent: if $PREFIX already has libavformat.pc (restored from cache) it does nothing, so the
 # cache hit path is free.
 set -euxo pipefail
-: "${FFMPEG_VERSION:?set FFMPEG_VERSION}" "${PREFIX:?set PREFIX}"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+: "${FFMPEG_REPO:?set FFMPEG_REPO}" "${FFMPEG_REF:?set FFMPEG_REF}" "${PREFIX:?set PREFIX}"
 
 if [ -f "$PREFIX/lib/pkgconfig/libavformat.pc" ]; then
   echo "ffmpeg already present at $PREFIX (cache hit), skipping build"
@@ -19,15 +18,11 @@ if [ -f "$PREFIX/lib/pkgconfig/libavformat.pc" ]; then
 fi
 
 work="$(mktemp -d)"; cd "$work"
-curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" -o ffmpeg.tar.xz
-tar xf ffmpeg.tar.xz
-cd "ffmpeg-${FFMPEG_VERSION}"
-
-shopt -s nullglob
-for p in "$ROOT"/patches/ffmpeg/*.patch; do
-  echo "mpv-builds: applying $(basename "$p")"
-  patch -p1 < "$p"
-done
+# blob:none keeps the clone light (blobs are fetched lazily on checkout); check out the exact
+# pinned commit so the build is reproducible even as the branch advances.
+git clone --filter=blob:none --no-checkout "https://github.com/${FFMPEG_REPO}.git" ffmpeg-src
+cd ffmpeg-src
+git checkout --detach "$FFMPEG_REF"
 
 extra=()
 case "$(uname -s)" in
@@ -45,4 +40,4 @@ esac
 
 make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 make install
-echo "mpv-builds: FFmpeg ${FFMPEG_VERSION} (patched) installed to $PREFIX"
+echo "mpv-builds: FFmpeg ${FFMPEG_REPO}@${FFMPEG_REF} (mmt-tlv) installed to $PREFIX"

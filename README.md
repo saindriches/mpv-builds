@@ -1,14 +1,14 @@
 # mpv-builds
 
-Builds [mpv](https://github.com/mpv-player/mpv) (the player app) against an FFmpeg compiled from
-source with the patches under `patches/ffmpeg/` applied. Today that patch set is the **MMT/TLV
-demuxer** (ARIB STD-B32), so the resulting mpv plays Japanese ISDB-S3 4K/8K `.mmts` files
-natively, including on scrambled streams, where the clear signaling still yields timing, service,
-and track metadata.
+Builds [mpv](https://github.com/mpv-player/mpv) (the player app) against an FFmpeg compiled from our
+**MMT/TLV fork branch** ([`saindriches/FFmpeg` @ `mmt-tlv`](https://github.com/saindriches/FFmpeg/tree/mmt-tlv)),
+which carries the **MMT/TLV demuxer** (ARIB STD-B32) in-tree. The resulting mpv plays Japanese
+ISDB-S3 4K/8K `.mmts` files natively, including on scrambled streams, where the clear signaling
+still yields timing, service, and track metadata.
 
 Same idea as the sibling [iina-builds](https://github.com/saindriches/iina-builds): a standalone
-repo (not a fork) that keeps the patches and CI in one clean place. The framework is general:
-drop more `.patch` files into `patches/<dep>/` and they apply in order.
+repo (not a fork) that keeps the CI in one clean place. FFmpeg now comes from the fork branch (no
+in-repo ffmpeg patches); mpv's own source tweaks still live in `patches/mpv/` and apply in order.
 
 ## What it produces
 
@@ -28,9 +28,9 @@ a personal machine without a developer certificate.
 
 Two layers, so re-runs are cheap:
 
-1. **Patched-FFmpeg prefix**: the built `ffprefix/` is cached, keyed on the FFmpeg version and a
-   hash of `patches/ffmpeg/*.patch`. It rebuilds only when a patch or the version changes; an
-   mpv-only change restores it in seconds. `build-ffmpeg.sh` is idempotent, so a cache hit is free.
+1. **FFmpeg prefix**: the built `ffprefix/` is cached, keyed on the pinned fork commit
+   (`FFMPEG_REF`). It rebuilds only when that ref changes; an mpv-only change restores it in
+   seconds. `build-ffmpeg.sh` is idempotent, so a cache hit is free.
 2. **ccache**: accelerates recompiles of mpv (and FFmpeg when it does rebuild), keyed per platform
    with a rolling `restore-keys`, the same pattern mpv's own CI uses.
 
@@ -39,17 +39,17 @@ in the workflow.
 
 ## Pinned inputs
 
-See `manifest.env`: `FFMPEG_VERSION` (the release the patches target), `MPV_REF` (git ref, `master`
-for nightly), `CACHE_EPOCH`.
+See `manifest.env`: `FFMPEG_REPO` + `FFMPEG_REF` (the MMT/TLV fork and its pinned `mmt-tlv` commit),
+`MPV_REF` (git ref, `master` for nightly), `CACHE_EPOCH`.
 
 ## Triggers
 
 - push to `main` touching `patches/**`, `scripts/**`, the workflow, or `manifest.env`
-- nightly `schedule` (mpv master moves; FFmpeg stays cached unless the patches change)
+- nightly `schedule` (mpv master moves; FFmpeg stays cached unless `FFMPEG_REF` changes)
 - manual `workflow_dispatch` (`mpv_ref`, `force_rebuild_ffmpeg`)
 
 ## Status
 
-macOS and Linux are the intended paths; the Windows/mingw job builds the patched FFmpeg but its mpv
+macOS and Linux are the intended paths; the Windows/mingw job builds the fork's FFmpeg but its mpv
 step is a scaffold to iterate on in CI. First runs may need fixups; GitHub Actions can't be
 validated locally.

@@ -1,13 +1,13 @@
 name: build
 
 # Builds mpv (the player: mpv.app on macOS, mpv.exe on Windows, the binary on Linux) against an
-# FFmpeg compiled from source with patches/ffmpeg/*.patch applied; today the MMT/TLV demuxer, so
-# mpv plays ISDB-S3 4K/8K .mmts natively. Framework is general: drop more .patch files into
-# patches/<dep>/ and they apply in order.
+# FFmpeg compiled from our MMT/TLV fork branch (saindriches/FFmpeg @ mmt-tlv, pinned by commit), so
+# mpv plays ISDB-S3 4K/8K .mmts natively. FFmpeg carries the MMT/TLV demuxer in-tree now (no patch
+# step); mpv's own source tweaks still live in patches/mpv/ and apply in order.
 #
 # Caching, so iterating is cheap:
-#   1. The built patched-FFmpeg prefix is cached, keyed on the patch set + FFmpeg version. It only
-#      rebuilds when a patch or the version changes; mpv-only iterations restore it in seconds.
+#   1. The built FFmpeg prefix is cached, keyed on the pinned fork commit (FFMPEG_REF). It only
+#      rebuilds when that ref changes; mpv-only iterations restore it in seconds.
 #   2. ccache accelerates recompiles (mpv, and FFmpeg when it does rebuild), keyed per platform
 #      with a rolling restore-key (mpv's own CI pattern).
 #
@@ -41,7 +41,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FFMPEG_VERSION: "8.0.1"
+  FFMPEG_REPO: "saindriches/FFmpeg"
+  FFMPEG_REF: "90b4ce9b379ccd56d2c7536681df7bd2b2a0bf9b"
   MPV_REF: ${{ github.event.inputs.mpv_ref || 'master' }}
   CACHE_EPOCH: "1"
 
@@ -91,17 +92,13 @@ jobs:
             echo "mpv-builds: applying $(basename "$p")"; patch -p1 -F3 -d mpv -i "$p"
           done
 
-      - name: Compute patch hash
-        id: keys
-        run: echo "patch_hash=$(find patches/ffmpeg -name '*.patch' | sort | xargs cat | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore patched-FFmpeg prefix
+      - name: Restore FFmpeg prefix
         id: ffcache
         if: ${{ github.event.inputs.force_rebuild_ffmpeg != 'true' }}
         uses: actions/cache@v4
         with:
           path: ${{ env.PREFIX }}
-          key: ffmpeg-macos-${{ matrix.arch }}-v${{ env.FFMPEG_VERSION }}-rt-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
+          key: ffmpeg-macos-${{ matrix.arch }}-rt-${{ env.FFMPEG_REF }}-epoch${{ env.CACHE_EPOCH }}
 
       - name: ccache
         uses: actions/cache@v4
@@ -312,17 +309,13 @@ jobs:
           shopt -s nullglob
           for p in "$GITHUB_WORKSPACE"/patches/mpv/*.patch; do patch -p1 -F3 -d mpv -i "$p"; done
 
-      - name: Compute patch hash
-        id: keys
-        run: echo "patch_hash=$(find patches/ffmpeg -name '*.patch' | sort | xargs cat | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore patched-FFmpeg prefix
+      - name: Restore FFmpeg prefix
         id: ffcache
         if: ${{ github.event.inputs.force_rebuild_ffmpeg != 'true' }}
         uses: actions/cache@v4
         with:
           path: ${{ env.PREFIX }}
-          key: ffmpeg-linux-x86_64-v${{ env.FFMPEG_VERSION }}-lp-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
+          key: ffmpeg-linux-x86_64-lp-${{ env.FFMPEG_REF }}-epoch${{ env.CACHE_EPOCH }}
 
       - uses: actions/cache@v4
         with:
@@ -420,30 +413,23 @@ jobs:
       - name: Set FFmpeg prefix (MSYS2 path)
         run: echo "PREFIX=$(cygpath -u "$RUNNER_TEMP")/ffprefix" >> "$GITHUB_ENV"
 
-      - name: Compute patch hash
-        id: keys
-        shell: bash
-        run: echo "patch_hash=$(find patches/ffmpeg -name '*.patch' | sort | xargs cat | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore patched-FFmpeg prefix
+      - name: Restore FFmpeg prefix
         id: ffcache
         if: ${{ github.event.inputs.force_rebuild_ffmpeg != 'true' }}
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/ffprefix
-          key: ffmpeg-windows-x86_64-msys2-v${{ env.FFMPEG_VERSION }}-patch${{ steps.keys.outputs.patch_hash }}-epoch${{ env.CACHE_EPOCH }}
+          key: ffmpeg-windows-x86_64-msys2-${{ env.FFMPEG_REF }}-epoch${{ env.CACHE_EPOCH }}
 
-      - name: Build patched FFmpeg (MSYS2 MINGW64)
+      - name: Build FFmpeg from mmt-tlv fork (MSYS2 MINGW64)
         if: ${{ steps.ffcache.outputs.cache-hit != 'true' }}
         run: |
           set -euxo pipefail
           test -f "$PREFIX/lib/pkgconfig/libavformat.pc" && { echo "cache hit"; exit 0; }
           work="$(mktemp -d)"; cd "$work"
-          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | tar xJ
-          cd "ffmpeg-${FFMPEG_VERSION}"
-          for p in "$GITHUB_WORKSPACE"/patches/ffmpeg/*.patch; do
-            echo "mpv-builds: applying $(basename "$p")"; patch -p1 < "$p"
-          done
+          git clone --filter=blob:none --no-checkout "https://github.com/${FFMPEG_REPO}.git" ffmpeg-src
+          cd ffmpeg-src
+          git checkout --detach "$FFMPEG_REF"
           # Native build under MINGW64 (no cross-prefix needed; the toolchain targets Windows).
           ./configure --prefix="$PREFIX" \
             --enable-gpl --enable-version3 \
