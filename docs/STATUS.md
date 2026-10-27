@@ -77,9 +77,9 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 A pre-submission audit (2026-10-28) ran Forgejo Fairy's own review prompt, from
 `code.ffmpeg.org/michaelni/Fairies` `llm_prompt.py`, through Codex gpt-6-astra. It classified
 the series major_issues. The reason is that packets queued before a seek survive it, which can
-trip an assertion in the binary search. Twelve of its thirteen findings were checked against
-the code and hold, though one (the subtitle descriptor) needs a different fix than Codex
-proposed. The rendered prompt, the review and the verification table are in the shared
+trip an assertion in the binary search. All thirteen findings hold against the code and the
+ARIB specs (the user's copies: `/Volumes/Nearline/ARIB/Broadcast/Standard/`, STD-B60 v1.5
+and others). One (the subtitle descriptor) needs a different fix than Codex proposed. The rendered prompt, the review and the verification table are in the shared
 session notes folder, `bt1869-tlv-audit/README.md` (outside any repo, on the user's Mac).
 Fix the confirmed findings on `bt1869-tlv-dev` first, if the user agrees, then autosquash and
 rerun the harness, `trash.sh` and FATE.
