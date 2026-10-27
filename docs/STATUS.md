@@ -37,36 +37,42 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 - Nothing of ours has been posted upstream. Pushing, commenting or opening a PR needs the user's
   explicit go.
 
-## Current work: TLV/MMT layer split (design only, no code yet)
+## Current work: the BT.1869 TLV demuxer series
 
-- Design: `~/ffmpeg-mmt/MMT-SPLIT-DESIGN.md`. **Untracked and local to the user's Mac**, because
-  that repository's branches are bound for upstream. Copy of the Fairy review: the shared
-  session notes folder, `ffmpeg-21037-fairy-review.md`.
-- Recommendation in short: TLV becomes its own demuxer `tlv` (`tlvdec.c`), not a URLProtocol
-  and not a nested demuxer; MMT stays a libavformat-internal parser library (`mmtp.c`, ISO core)
-  with the ARIB STD-B60 parts in `mmtp_arib.c`; the MMT flavor (ARIB, ATSC 3.0, unknown) is
-  detected from the stream, never hinted by TLV; no new AVOptions.
-- Upstream path (revised again 2026-10-28): a new series in its final shape (MMTP core, ARIB
-  part, TLV demuxer, then seeking, extradata, metadata, FATE), authored by the user, with
-  "Based on a patch by SuperFashi" in the commits built from their code (FFmpeg's idiom for
-  reworking an absent author's patch; `Co-authored-by:` is allowed but reads as joint work). Keeping their commit as
-  commit 1 was rejected: we change a fifth of it and the review fixes more, so their name would
-  sit on code they never wrote, and later commits would move and rename what commit 1 adds.
-  SuperFashi is assumed not to reply (no activity since 2025-12-02): open the PR directly, then
-  a short note on #21037 linking it. Reasoning: section 5 of the design.
+- Design and decisions: `~/ffmpeg-mmt/MMT-SPLIT-DESIGN.md`. **Untracked and local to the
+  user's Mac**, because that repository's branches are bound for upstream. Section 9 lists the
+  implementation decisions and their reasons. Copy of the Fairy review: the shared session
+  notes folder, `ffmpeg-21037-fairy-review.md`.
+- Shape: TLV is its own demuxer `bt1869_tlv` (`libavformat/bt1869_tlvdec.c`, extension
+  `mmts`); MMT is a libavformat-internal parser (`mmtp.c` ISO core, `mmtp_arib.c` ARIB STD-B60,
+  shared `mmtp_internal.h`, API in `mmtp.h`); the MMT flavor (ARIB, ATSC 3.0, unknown) is
+  detected from the stream; no AVOptions. HEVC access units are assembled in the demuxer.
+- Code: worktree `~/ffmpeg-tlv`, branch `bt1869-tlv-dev`, on upstream master `86444dd3`.
+  **Local only, not pushed.** Its commits are working steps; the series still has to be cut
+  from it (design section 5: MMTP core, ARIB part, demuxer, seeking, metadata, FATE). The fork's
+  extradata commit is dropped (libavformat's generic path gives the same extradata).
+- Credit and identity (settled 2026-10-28): commits authored as Rainbaby <r@bgr.jp>, with
+  "Based on a patch by SuperFashi <admin@superfashi.com>" (and "Based on a patch by msg7086" on
+  the seek commit). SuperFashi is assumed not to reply: open the PR directly, then a short
+  note on #21037 linking it (draft in design section 8).
+- Checks: regression harness `/Volumes/Nearline/mmt_tlv/ffmpeg_regress/` (outside any repo;
+  `README.txt` there explains `run.sh`, `compare.py`, `trash.sh` and every intended difference
+  against the fork head `f7480a7c`). Latest run `dev-4`: video packets and timestamps equal to
+  the fork on all 22 samples. FATE test `fate-bt1869-tlv-demux` uses a 400 kB cut kept at
+  `/Volumes/Nearline/mmt_tlv/fate/samples/mmt/b111-1s.mmts`; uploading it to fate-suite is the
+  user's call.
 - Same layer boundaries as the MediaInfoLib refactor (PR 2647, `File_Tlv` / `File_Mmt` /
   `File_Mmt_Arib.cpp`, local branch `mmt-tlv-refactor` in `~/PycharmProjects/MediaInfoLib`).
-- CI impact: develop on current upstream master, cherry-pick to a new branch on the fork base
-  for CI, rebuild the AVS+ branch on top under a new name, and bump the pins only after a
-  before/after framemd5 and seek gate passes. `mmt-tlv` and `mmt-tlv-avsplus` stay untouched as
-  rollback points.
+- CI impact: cherry-pick the finished series to a new branch on the fork base for CI, rebuild
+  the AVS+ branch on top under a new name, and bump the pins only after the harness gate
+  passes. `mmt-tlv` and `mmt-tlv-avsplus` stay untouched as rollback points.
 
 ## Next step
 
-Waiting on the user's answers to the open questions in section 6 of the design (demuxer
-name, credit form, one or two MMT files, fork base, ATSC scope).
-Then: branch from current upstream master, implement the MMTP core commit with the fork and
-Fairy fixes, and build the framemd5 harness over the reference `.mmts` files.
+Finish the damaged input run (`trash.sh` with the ASAN build `~/ffmpeg-tlv-asan`), then recut
+`bt1869-tlv-dev` into the final commits on the same base and check the recut tree equals the
+dev tree. Pushing, opening the PR, the #21037 note, the FATE sample upload and CI pin changes
+each need the user's explicit go.
 
 ## Known stale text
 
