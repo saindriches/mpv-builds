@@ -60,7 +60,8 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
   note on #21037 linking it (draft in design section 8).
 - Checks: regression harness `/Volumes/Nearline/mmt_tlv/ffmpeg_regress/` (outside any repo;
   `README.txt` there explains `run.sh`, `compare.py`, `trash.sh` and every intended difference
-  against the fork head `f7480a7c`). Run `series-1` (the cut series): video packets equal to the
+  against the fork head `f7480a7c`). Run `series-3` (the series after the audit fixes) is the
+reference: packets equal to `series-2`, which predates the fixes. Run `series-1` (the cut series): video packets equal to the
   fork on all 22 samples. Damaged input: `trash.sh` with a UBSan build under Guard Malloc
   (ASAN binaries hang on this Mac) found one out-of-bounds read in the MPT walk, now fixed;
   1400 trashed inputs then ran clean. FATE test `fate-bt1869-tlv-demux` uses a 400 kB cut kept at
@@ -76,13 +77,15 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 A pre-submission audit (2026-10-28) ran Forgejo Fairy's own review prompt, from
 `code.ffmpeg.org/michaelni/Fairies` `llm_prompt.py`, through Codex gpt-6-astra. It classified
-the series major_issues. The reason is that packets queued before a seek survive it, which can
-trip an assertion in the binary search. All thirteen findings hold against the code and the
-ARIB specs (the user's copies: `/Volumes/Nearline/ARIB/Broadcast/Standard/`, STD-B60 v1.5
-and others). One (the subtitle descriptor) needs a different fix than Codex proposed. The rendered prompt, the review and the verification table are in the shared
-session notes folder, `bt1869-tlv-audit/README.md` (outside any repo, on the user's Mac).
-Fix the confirmed findings on `bt1869-tlv-dev` first, if the user agrees, then autosquash and
-rerun the harness, `trash.sh` and FATE.
+the series major_issues, mainly because packets queued before a seek survived it. All thirteen
+findings were confirmed against the code and the ARIB specs (the user's copies:
+`/Volumes/Nearline/ARIB/Broadcast/Standard/`). On the user's go all were fixed and
+autosquashed; the series is now 2f1c982d, fcbf4251, 0f8f9fcf, 294f9d68, and the dev branch has
+the same tree. Every commit builds from scratch, FATE passes, the harness packets are
+unchanged on all 22 samples, and 1400 damaged inputs run clean. Prompt, review, verification
+and the list of fixes: shared session notes folder, `bt1869-tlv-audit/README.md` (outside any
+repo, on the user's Mac). Constructed inputs for the findings:
+`/Volumes/Nearline/mmt_tlv/ffmpeg_regress/fixtures/`.
 
 Then the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
