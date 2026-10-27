@@ -64,7 +64,7 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 Waiting on the user's answers to the open questions in section 6 of the design (comment on
 #21037, demuxer name, credit form, one or two MMT files, fork base, ATSC scope).
-Then: draft the #21037 comment for review, branch from current upstream master, rebuild
+Then: the user reviews the #21037 comment drafted in section 8 of the design and posts it; branch from current upstream master, rebuild
 SuperFashi's commit with the Fairy fixes,
 and build the framemd5 harness over the reference `.mmts` files.
 
