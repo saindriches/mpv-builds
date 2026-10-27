@@ -46,14 +46,13 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
   and not a nested demuxer; MMT stays a libavformat-internal parser library (`mmtp.c`, ISO core)
   with the ARIB STD-B60 parts in `mmtp_arib.c`; the MMT flavor (ARIB, ATSC 3.0, unknown) is
   detected from the stream, never hinted by TLV; no new AVOptions.
-- Upstream path (revised 2026-10-28): take #21037 over as a review-driven v2. Commit 1 stays
-  SuperFashi's (their `Author:`, our `Signed-off-by:`) with only the review fixes folded in,
-  because FFmpeg rejects resubmissions that add unrequested changes; the layer split, the
-  rename and our features follow as separate commits. SuperFashi is assumed not to reply (user's
-  call, given no activity since 2025-12-02): open a new PR directly, then post a short note on
-  #21037 linking it. Updating #21037 in place would need SuperFashi to force-push or grant
-  access, since merging a PR into their branch only adds commits. Evidence: section 5 of the
-  design.
+- Upstream path (revised again 2026-10-28): a new series in its final shape (MMTP core, ARIB
+  part, TLV demuxer, then seeking, extradata, metadata, FATE), authored by the user, with
+  `Co-authored-by: SuperFashi` on the commits built from their code. Keeping their commit as
+  commit 1 was rejected: we change a fifth of it and the review fixes more, so their name would
+  sit on code they never wrote, and later commits would move and rename what commit 1 adds.
+  SuperFashi is assumed not to reply (no activity since 2025-12-02): open the PR directly, then
+  a short note on #21037 linking it. Reasoning: section 5 of the design.
 - Same layer boundaries as the MediaInfoLib refactor (PR 2647, `File_Tlv` / `File_Mmt` /
   `File_Mmt_Arib.cpp`, local branch `mmt-tlv-refactor` in `~/PycharmProjects/MediaInfoLib`).
 - CI impact: develop on current upstream master, cherry-pick to a new branch on the fork base
@@ -65,8 +64,8 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 Waiting on the user's answers to the open questions in section 6 of the design (demuxer
 name, credit form, one or two MMT files, fork base, ATSC scope).
-Then: branch from current upstream master, rebuild SuperFashi's commit with the Fairy
-fixes, and build the framemd5 harness over the reference `.mmts` files.
+Then: branch from current upstream master, implement the MMTP core commit with the fork and
+Fairy fixes, and build the framemd5 harness over the reference `.mmts` files.
 
 ## Known stale text
 
