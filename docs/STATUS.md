@@ -48,7 +48,8 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
   detected from the stream, never hinted by TLV; no new AVOptions.
 - Upstream path (revised again 2026-10-28): a new series in its final shape (MMTP core, ARIB
   part, TLV demuxer, then seeking, extradata, metadata, FATE), authored by the user, with
-  `Co-authored-by: SuperFashi` on the commits built from their code. Keeping their commit as
+  "Based on a patch by SuperFashi" in the commits built from their code (FFmpeg's idiom for
+  reworking an absent author's patch; `Co-authored-by:` is allowed but reads as joint work). Keeping their commit as
   commit 1 was rejected: we change a fifth of it and the review fixes more, so their name would
   sit on code they never wrote, and later commits would move and rename what commit 1 adds.
   SuperFashi is assumed not to reply (no activity since 2025-12-02): open the PR directly, then
