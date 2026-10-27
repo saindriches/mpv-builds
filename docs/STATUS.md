@@ -47,18 +47,22 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
   `mmts`); MMT is a libavformat-internal parser (`mmtp.c` ISO core, `mmtp_arib.c` ARIB STD-B60,
   shared `mmtp_internal.h`, API in `mmtp.h`); the MMT flavor (ARIB, ATSC 3.0, unknown) is
   detected from the stream; no AVOptions. HEVC access units are assembled in the demuxer.
-- Code: worktree `~/ffmpeg-tlv`, branch `bt1869-tlv-dev`, on upstream master `86444dd3`.
-  **Local only, not pushed.** Its commits are working steps; the series still has to be cut
-  from it (design section 5: MMTP core, ARIB part, demuxer, seeking, metadata, FATE). The fork's
-  extradata commit is dropped (libavformat's generic path gives the same extradata).
+- Code: the series is branch `bt1869-tlv` (worktree `~/ffmpeg-tlv-series`), four commits on
+  upstream master `86444dd3`: the demuxer (MMTP core, ARIB part, TLV layer, docs, Changelog,
+  minor bump), seeking, metadata, FATE test. **Local only, not pushed.** The working commits it
+  was cut from are on `bt1869-tlv-dev` (worktree `~/ffmpeg-tlv`); both trees are equal. Why the
+  core, ARIB part and demuxer share one commit, and why the fork's extradata commit is dropped:
+  design section 5.
 - Credit and identity (settled 2026-10-28): commits authored as Rainbaby <r@bgr.jp>, with
-  "Based on a patch by SuperFashi <admin@superfashi.com>" (and "Based on a patch by msg7086" on
-  the seek commit). SuperFashi is assumed not to reply: open the PR directly, then a short
+  "Based on a patch by SuperFashi <admin@superfashi.com>" (the seek commit: "Based on patches by
+  SuperFashi <admin@superfashi.com> and msg7086"). Each commit also carries a
+  `Co-Authored-By: Claude` trailer; drop it before posting if the user prefers. SuperFashi is assumed not to reply: open the PR directly, then a short
   note on #21037 linking it (draft in design section 8).
 - Checks: regression harness `/Volumes/Nearline/mmt_tlv/ffmpeg_regress/` (outside any repo;
   `README.txt` there explains `run.sh`, `compare.py`, `trash.sh` and every intended difference
-  against the fork head `f7480a7c`). Latest run `dev-4`: video packets and timestamps equal to
-  the fork on all 22 samples. FATE test `fate-bt1869-tlv-demux` uses a 400 kB cut kept at
+  against the fork head `f7480a7c`). Run `series-1` (the cut series): video packets equal to the
+  fork on all 22 samples. Damaged input: `trash.sh` with a UBSan build under Guard Malloc
+  (ASAN binaries hang on this Mac). FATE test `fate-bt1869-tlv-demux` uses a 400 kB cut kept at
   `/Volumes/Nearline/mmt_tlv/fate/samples/mmt/b111-1s.mmts`; uploading it to fate-suite is the
   user's call.
 - Same layer boundaries as the MediaInfoLib refactor (PR 2647, `File_Tlv` / `File_Mmt` /
@@ -69,10 +73,10 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 ## Next step
 
-Finish the damaged input run (`trash.sh` with the ASAN build `~/ffmpeg-tlv-asan`), then recut
-`bt1869-tlv-dev` into the final commits on the same base and check the recut tree equals the
-dev tree. Pushing, opening the PR, the #21037 note, the FATE sample upload and CI pin changes
-each need the user's explicit go.
+The user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
+`~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
+code.ffmpeg.org, open the PR with the FATE sample in the PR's `fate-samples` block, post the
+#21037 note (design section 8), and later cherry-pick to a CI branch and move the pins.
 
 ## Known stale text
 
