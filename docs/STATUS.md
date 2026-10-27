@@ -74,7 +74,17 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 ## Next step
 
-The user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
+A pre-submission audit (2026-10-28) ran Forgejo Fairy's own review prompt, from
+`code.ffmpeg.org/michaelni/Fairies` `llm_prompt.py`, through Codex gpt-6-astra. It classified
+the series major_issues. The reason is that packets queued before a seek survive it, which can
+trip an assertion in the binary search. Twelve of its thirteen findings were checked against
+the code and hold, though one (the subtitle descriptor) needs a different fix than Codex
+proposed. The rendered prompt, the review and the verification table are in the shared
+session notes folder, `bt1869-tlv-audit/README.md` (outside any repo, on the user's Mac).
+Fix the confirmed findings on `bt1869-tlv-dev` first, if the user agrees, then autosquash and
+rerun the harness, `trash.sh` and FATE.
+
+Then the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
 code.ffmpeg.org, open the PR with the FATE sample in the PR's `fate-samples` block, post the
 #21037 note (design section 8), and later cherry-pick to a CI branch and move the pins.
