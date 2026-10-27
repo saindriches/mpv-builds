@@ -45,9 +45,14 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 - Recommendation in short: TLV becomes its own demuxer `tlv` (`tlvdec.c`), not a URLProtocol
   and not a nested demuxer; MMT stays a libavformat-internal parser library (`mmtp.c`, ISO core)
   with the ARIB STD-B60 parts in `mmtp_arib.c`; the MMT flavor (ARIB, ATSC 3.0, unknown) is
-  detected from the stream, never hinted by TLV; no new AVOptions. Submitted as a replacement
-  series for #21037 (offered to SuperFashi first), with the Fairy findings fixed in the commits
-  that introduce the code.
+  detected from the stream, never hinted by TLV; no new AVOptions.
+- Upstream path (revised 2026-10-28): take #21037 over as a review-driven v2. Commit 1 stays
+  SuperFashi's (their `Author:`, our `Signed-off-by:`) with only the review fixes folded in,
+  because FFmpeg rejects resubmissions that add unrequested changes; the layer split, the
+  rename and our features follow as separate commits. Ask on #21037 first: Forgejo lets us open
+  a PR from `Rainbaby/FFmpeg` into SuperFashi's `tlvmmt` branch, which updates #21037 in place
+  if they merge it; otherwise a new PR after about a week. Evidence is in section 5 of the
+  design.
 - Same layer boundaries as the MediaInfoLib refactor (PR 2647, `File_Tlv` / `File_Mmt` /
   `File_Mmt_Arib.cpp`, local branch `mmt-tlv-refactor` in `~/PycharmProjects/MediaInfoLib`).
 - CI impact: develop on current upstream master, cherry-pick to a new branch on the fork base
@@ -57,9 +62,10 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 ## Next step
 
-Waiting on the user's answers to the open questions in section 6 of the design (replacement vs
-series on #21037, demuxer name, credit form, one or two MMT files, fork base, ATSC scope).
-Then: branch from current upstream master, implement the MMT core commit with the Fairy fixes,
+Waiting on the user's answers to the open questions in section 6 of the design (comment on
+#21037, demuxer name, credit form, one or two MMT files, fork base, ATSC scope).
+Then: draft the #21037 comment for review, branch from current upstream master, rebuild
+SuperFashi's commit with the Fairy fixes,
 and build the framemd5 harness over the reference `.mmts` files.
 
 ## Known stale text
