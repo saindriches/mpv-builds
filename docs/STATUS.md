@@ -49,9 +49,10 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 - Upstream path (revised 2026-10-28): take #21037 over as a review-driven v2. Commit 1 stays
   SuperFashi's (their `Author:`, our `Signed-off-by:`) with only the review fixes folded in,
   because FFmpeg rejects resubmissions that add unrequested changes; the layer split, the
-  rename and our features follow as separate commits. Ask on #21037 first: Forgejo lets us open
-  a PR from `Rainbaby/FFmpeg` into SuperFashi's `tlvmmt` branch, which updates #21037 in place
-  if they merge it; otherwise a new PR after about a week. Evidence is in section 5 of the
+  rename and our features follow as separate commits. SuperFashi is assumed not to reply (user's
+  call, given no activity since 2025-12-02): open a new PR directly, then post a short note on
+  #21037 linking it. Updating #21037 in place would need SuperFashi to force-push or grant
+  access, since merging a PR into their branch only adds commits. Evidence: section 5 of the
   design.
 - Same layer boundaries as the MediaInfoLib refactor (PR 2647, `File_Tlv` / `File_Mmt` /
   `File_Mmt_Arib.cpp`, local branch `mmt-tlv-refactor` in `~/PycharmProjects/MediaInfoLib`).
@@ -62,11 +63,10 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 ## Next step
 
-Waiting on the user's answers to the open questions in section 6 of the design (comment on
-#21037, demuxer name, credit form, one or two MMT files, fork base, ATSC scope).
-Then: the user reviews the #21037 comment drafted in section 8 of the design and posts it; branch from current upstream master, rebuild
-SuperFashi's commit with the Fairy fixes,
-and build the framemd5 harness over the reference `.mmts` files.
+Waiting on the user's answers to the open questions in section 6 of the design (demuxer
+name, credit form, one or two MMT files, fork base, ATSC scope).
+Then: branch from current upstream master, rebuild SuperFashi's commit with the Fairy
+fixes, and build the framemd5 harness over the reference `.mmts` files.
 
 ## Known stale text
 
