@@ -62,7 +62,8 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
   `README.txt` there explains `run.sh`, `compare.py`, `trash.sh` and every intended difference
   against the fork head `f7480a7c`). Run `series-1` (the cut series): video packets equal to the
   fork on all 22 samples. Damaged input: `trash.sh` with a UBSan build under Guard Malloc
-  (ASAN binaries hang on this Mac). FATE test `fate-bt1869-tlv-demux` uses a 400 kB cut kept at
+  (ASAN binaries hang on this Mac) found one out-of-bounds read in the MPT walk, now fixed;
+  1400 trashed inputs then ran clean. FATE test `fate-bt1869-tlv-demux` uses a 400 kB cut kept at
   `/Volumes/Nearline/mmt_tlv/fate/samples/mmt/b111-1s.mmts`; uploading it to fate-suite is the
   user's call.
 - Same layer boundaries as the MediaInfoLib refactor (PR 2647, `File_Tlv` / `File_Mmt` /
