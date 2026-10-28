@@ -116,9 +116,11 @@ is ignored, and the duration scan creates streams from MPTs near the end). On th
 design choices (untimed after a loss, resync never gives up, no streams from the duration scan,
 with the open-time signalling pass widened to probesize) are recorded with their reasons in
 design doc section 9. The series is now **f9794846, 375cdd4b, 5f913202, 35653e29**; the dev
-branch has the same tree (d34724fc). Every commit configures and builds from scratch without warnings; FATE passes with an unchanged reference; all four messages pass `check_commit_msg.sh`; patcheck's one hint on new code (`version != 0`) was fixed; harness run `series-6` equals `series-5` on 21 samples, and on `twoflow_b111_sdr` only the late-signalled 0xf311 is gone (finding 8) and framemd5 now succeeds; the inputs and harnesses of all four rounds pass; 1400 damaged inputs and all fixtures run clean under UBSan and Guard Malloc. Harness run
-`series-6` is the reference. Details: the audit README's "Round 4" sections; reproductions in
-`fixtures/round4/`.
+branch has the same tree (d34724fc). Every commit configures and builds from scratch without warnings; FATE passes with an unchanged reference; all four messages pass `check_commit_msg.sh`; patcheck's one hint on new code (`version != 0`) was fixed; harness run `series-6` equals `series-5` on 21 samples, and on `twoflow_b111_sdr` only the late-signalled 0xf311 is gone (finding 8) and framemd5 now succeeds; the inputs and harnesses of all four rounds pass; 1400 damaged inputs and all fixtures run clean under UBSan and Guard Malloc. Details: the audit README's "Round 4" sections; reproductions in `fixtures/round4/`.
+
+A code style audit (`code-style-audit.md` in the audit notes) found only cosmetic points; on the user's go items 1 to 4, three long lines and comments on the four large parsers were applied, plus three corrected ARIB STD-B60 table references (7-21 to 7-82 twice, MH-EIT 7-30 to 7-18). Each change went into the commit that introduces the code (commits 1 and 3; patches 2 and 4 unchanged). Series now **f1b71584, 68d8eb27, 661e2b9f, b983e44a**, dev 5d683253 same tree; every commit builds from scratch without warnings, FATE passes, and harness run `series-7` equals `series-6` on all 22 samples including seeks. Harness run `series-7` is the
+reference. A final spec-alignment audit against the local ARIB documents is under way; its
+reports go beside the audit README.
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
