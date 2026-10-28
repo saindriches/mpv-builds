@@ -129,9 +129,13 @@ tree. Each fix was reproduced on constructed input (`fixtures/spec5/`); builds, 
 messages, patcheck and the UBSan and Guard Malloc run pass; harness run `series-8` equals
 `series-7`. A memory-use audit followed (`memory-audit.md` in the audit notes): no leaks, but
 the spec fix had dropped the bound on held access units, now restored (series **9e93ec42, 479df9a4, f50b841a, 7cb76a89**,
-all checks pass, harness `series-9` the reference), and three more findings worth fixing (four
-copies of video data, unbounded signalling assemblers, a fixed 256-entry array per cached
-extended timestamp) await the user's choice.
+all checks pass), and on the user's go its three other findings were fixed in commit 1: HEVC
+MFUs go straight into the buffer that becomes the packet, signalling assemblers are bounded,
+and the extended timestamp cache is sized to its data. Demuxer heap 3.51 to 1.43 MiB (4K) and
+5.88 to 2.20 MiB (8K); hostile inputs from 4 to 49 MiB down to 0.03 to 3.1 MiB; packets
+identical but for one reordered audio packet on a lossy cut. The series is now **2b9732d4, 8845ad50, 8b5c3da2, cbe1b55e**,
+dev 4d6d22c5; all checks pass and harness `series-10` is the reference. Next: the user reviews
+the series; push, PR, the #21037 note and the sample each need their go.
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
