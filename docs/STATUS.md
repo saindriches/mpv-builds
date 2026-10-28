@@ -123,7 +123,12 @@ reference. A final spec-alignment audit against the local ARIB documents (three 
 `spec-audit-*.md` beside the audit README, verdicts in its last section) found five confirmed
 deviations, none in our captures: the dependency descriptor's 16-bit length, the first AU timed
 in decoding order when the extended timestamp descriptor is missing, `pts_offset_type` 3, IPv4
-fragments, and TTML not held for its MPU timestamp. Which to fix is the user's call.
+fragments, and TTML not held for its MPU timestamp. All five were fixed in commit 1 on the
+user's go; the series is now **a7a3e223, 2208aadb, 01d53415, 95475a69**, dev 846bbf74 the same
+tree. Each fix was reproduced on constructed input (`fixtures/spec5/`); builds, FATE, commit
+messages, patcheck and the UBSan and Guard Malloc run pass; harness run `series-8` equals
+`series-7` and is the reference. A memory-use audit is next (`memory-audit.md` in the audit
+notes).
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
