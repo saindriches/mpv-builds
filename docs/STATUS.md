@@ -80,8 +80,7 @@ A pre-submission audit (2026-10-28) ran Forgejo Fairy's own review prompt, from
 the series major_issues, mainly because packets queued before a seek survived it. All thirteen
 findings were confirmed against the code and the ARIB specs (the user's copies:
 `/Volumes/Nearline/ARIB/Broadcast/Standard/`). On the user's go all were fixed and
-autosquashed; the series is now 2f1c982d, fcbf4251, 0f8f9fcf, 294f9d68, and the dev branch has
-the same tree. Every commit builds from scratch, FATE passes, the harness packets are
+autosquashed (then 2f1c982d, fcbf4251, 0f8f9fcf, 294f9d68). Every commit builds from scratch, FATE passes, the harness packets are
 unchanged on all 22 samples, and 1400 damaged inputs run clean. Prompt, review, verification
 and the list of fixes: shared session notes folder, `bt1869-tlv-audit/README.md` (outside any
 repo, on the user's Mac). Constructed inputs for the findings:
@@ -91,10 +90,13 @@ A second round over 294f9d68, with the first review attached as prior discussion
 moderate_issues: every earlier finding is resolved, and two new ones are confirmed. `resync()`
 can lose the TLV header it rewinds to on unseekable input (packets lost through a pipe after a
 large TLV packet or damage), and a language-only track change raises no metadata update flag.
-Codex's fixes for both are verified but **not applied**; they wait for the user's go (diff in
-`fixtures/round2/`, details in the audit README's "Round 2" section).
+On the user's go both were fixed with Codex's diff and autosquashed: the series is now
+**e241d1da, 1ab4d538, e7f2ceba, 77b6b9f7**, and the dev branch has the same tree (56c7cd46).
+Every commit builds from scratch, FATE passes, harness run `series-4` equals `series-3` on all
+22 samples, and both rounds' inputs pass (`fixtures/`, `fixtures/round2/`). 1400 damaged inputs (1000 of the FATE sample, 200 each of two broadcast captures) run clean under UBSan and Guard Malloc, as do both rounds' inputs.
+Details: the audit README's "Round 2" sections.
 
-Then the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
+Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
 code.ffmpeg.org, open the PR with the FATE sample in the PR's `fate-samples` block, post the
 #21037 note (design section 8), and later cherry-pick to a CI branch and move the pins.
