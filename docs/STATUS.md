@@ -96,6 +96,12 @@ Every commit builds from scratch, FATE passes, harness run `series-4` equals `se
 22 samples, and both rounds' inputs pass (`fixtures/`, `fixtures/round2/`). 1400 damaged inputs (1000 of the FATE sample, 200 each of two broadcast captures) run clean under UBSan and Guard Malloc, as do both rounds' inputs.
 Details: the audit README's "Round 2" sections.
 
+A third round over 77b6b9f7, with both earlier reviews attached, found one new problem,
+confirmed: the two timestamp scans (duration estimate at open, seek search) retry forever when
+reads keep failing, including on AVERROR_EXIT from an interrupt callback, so cancelling a seek
+can hang a player. Codex's fix is verified but **not applied**; it waits for the user's go
+(diff in `fixtures/round3/`, details in the audit README's "Round 3" section).
+
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
 code.ffmpeg.org, open the PR with the FATE sample in the PR's `fate-samples` block, post the
