@@ -102,8 +102,18 @@ reads keep failing, including on AVERROR_EXIT from an interrupt callback, so can
 can hang a player. On the user's go Codex's fix went in as fixups to commits 1 and 2: the
 series is now **6a362ec2, c996cbce, 2bc53fe1, d004ee64**, and the dev branch has the same tree
 (8258a2ec). Every commit configures and builds from scratch without warnings, FATE passes, all four messages pass `check_commit_msg.sh`, harness run `series-5` equals `series-4` on all 22 samples, the inputs and harnesses of all three rounds pass (the scan with EIO via `fixtures/round3/io_error_eio.c`), and 1400 damaged inputs run clean under UBSan and Guard Malloc. Harness run `series-5` is the reference. Details: the audit
-README's "Round 3" sections. A fourth round, the same prompt run by a Claude subagent instead
-of Codex, was started at d004ee64.
+README's "Round 3" sections.
+
+A fourth round ran the same prompt through a Claude subagent instead of Codex, at d004ee64. It
+classified the series moderate_issues with eight new findings, all reproduced by the main
+session: after a seek the first access units of the landing MPU are untimed or mistimed
+(MPU timestamps are sent before their MPU and the reset drops them); hostile input with many
+UDP endpoints makes flow lookup quadratic; a scrambled recording is read in full at open and
+again by stream analysis; plus five minor ones (one damaged version bit disables a flow, a lost
+access unit shifts later timestamps, resync gives up after about 132 KiB, `-skip_initial_bytes`
+is ignored, and the duration scan creates streams from MPTs near the end). **None is applied**;
+three need a design decision first. Details: the audit README's "Round 4" section;
+reproductions and prototype fixes in `fixtures/round4/`.
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
