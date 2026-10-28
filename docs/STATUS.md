@@ -87,6 +87,13 @@ and the list of fixes: shared session notes folder, `bt1869-tlv-audit/README.md`
 repo, on the user's Mac). Constructed inputs for the findings:
 `/Volumes/Nearline/mmt_tlv/ffmpeg_regress/fixtures/`.
 
+A second round over 294f9d68, with the first review attached as prior discussion, classified it
+moderate_issues: every earlier finding is resolved, and two new ones are confirmed. `resync()`
+can lose the TLV header it rewinds to on unseekable input (packets lost through a pipe after a
+large TLV packet or damage), and a language-only track change raises no metadata update flag.
+Codex's fixes for both are verified but **not applied**; they wait for the user's go (diff in
+`fixtures/round2/`, details in the audit README's "Round 2" section).
+
 Then the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
 code.ffmpeg.org, open the PR with the FATE sample in the PR's `fate-samples` block, post the
