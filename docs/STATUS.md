@@ -111,9 +111,14 @@ session: after a seek the first access units of the landing MPU are untimed or m
 UDP endpoints makes flow lookup quadratic; a scrambled recording is read in full at open and
 again by stream analysis; plus five minor ones (one damaged version bit disables a flow, a lost
 access unit shifts later timestamps, resync gives up after about 132 KiB, `-skip_initial_bytes`
-is ignored, and the duration scan creates streams from MPTs near the end). **None is applied**;
-three need a design decision first. Details: the audit README's "Round 4" section;
-reproductions and prototype fixes in `fixtures/round4/`.
+is ignored, and the duration scan creates streams from MPTs near the end). On the user's go
+("fix all if code is small") all eight were fixed in commit 1, about 160 new lines; the three
+design choices (untimed after a loss, resync never gives up, no streams from the duration scan,
+with the open-time signalling pass widened to probesize) are recorded with their reasons in
+design doc section 9. The series is now **f9794846, 375cdd4b, 5f913202, 35653e29**; the dev
+branch has the same tree (d34724fc). Every commit configures and builds from scratch without warnings; FATE passes with an unchanged reference; all four messages pass `check_commit_msg.sh`; patcheck's one hint on new code (`version != 0`) was fixed; harness run `series-6` equals `series-5` on 21 samples, and on `twoflow_b111_sdr` only the late-signalled 0xf311 is gone (finding 8) and framemd5 now succeeds; the inputs and harnesses of all four rounds pass; 1400 damaged inputs and all fixtures run clean under UBSan and Guard Malloc. Harness run
+`series-6` is the reference. Details: the audit README's "Round 4" sections; reproductions in
+`fixtures/round4/`.
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
