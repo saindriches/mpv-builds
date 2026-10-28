@@ -127,8 +127,11 @@ fragments, and TTML not held for its MPU timestamp. All five were fixed in commi
 user's go; the series is now **a7a3e223, 2208aadb, 01d53415, 95475a69**, dev 846bbf74 the same
 tree. Each fix was reproduced on constructed input (`fixtures/spec5/`); builds, FATE, commit
 messages, patcheck and the UBSan and Guard Malloc run pass; harness run `series-8` equals
-`series-7` and is the reference. A memory-use audit is next (`memory-audit.md` in the audit
-notes).
+`series-7`. A memory-use audit followed (`memory-audit.md` in the audit notes): no leaks, but
+the spec fix had dropped the bound on held access units, now restored (series **9e93ec42, 479df9a4, f50b841a, 7cb76a89**,
+all checks pass, harness `series-9` the reference), and three more findings worth fixing (four
+copies of video data, unbounded signalling assemblers, a fixed 256-entry array per cached
+extended timestamp) await the user's choice.
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
