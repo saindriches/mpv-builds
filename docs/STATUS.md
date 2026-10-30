@@ -22,7 +22,19 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 ## Pins (settled)
 
-- mpv-builds `manifest.env`: `FFMPEG_REF=059cd851` (avsplus head).
+- mpv-builds `manifest.env` and the workflow: `FFMPEG_REF=0d40e016` (2026-10-30), head of
+  `fork/bt1869-tlv-ci`: fork base `413346bd` + the four bt1869-tlv series commits + one CI-only
+  commit adapting them to that base (`avpriv_packet_list_*`, no `av_program_add_stream_index2`,
+  FATE reference regenerated) + the 29 AVS+ commits of `mmt-tlv-avsplus`, whose libavcodec is
+  byte-identical. Checked locally: builds without warnings in our files, the TLV FATE test and
+  checkasm-cavsdsp pass, harness packets equal `series-11` on all 22 samples. Known difference:
+  on 7 samples ffprobe's seek output lists one or two packets more or fewer right after the seek
+  point than on master; the demuxer is the same, so this is generic code of the older base (the
+  local clone is shallow, so not bisected). Rollback: `059cd851` (`mmt-tlv-avsplus`, untouched).
+- mpv-builds CI since 2026-10-30: macOS arm64 only on `macos-26` (Homebrew no longer installs on
+  Intel, and `macos-14` lost its bottles; the universal job is gone, on the user's choice),
+  Windows on MSYS2 UCRT64 (MINGW64 lost rubberband and luajit), Linux unchanged. It had failed
+  nightly from 2026-08-29 until GitHub disabled the schedule.
 - iina-builds `.github/workflows/build.yml`: `FFMPEG_REF=c180246b`, one commit behind on purpose
   (that commit is x86 SSE2 only; the IINA app is arm64).
 - Neither workflow sets `restore-keys` for the FFmpeg prefix, so a pin bump is a full rebuild.
@@ -156,10 +168,5 @@ need their go.
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
 code.ffmpeg.org, open the PR with the FATE sample in the PR's `fate-samples` block, post the
-#21037 note (design section 8), and later cherry-pick to a CI branch and move the pins.
-
-## Known stale text
-
-`README.md` still says the pin is on `mmt-tlv`, lists `macos-13` and calls the Windows job a
-scaffold. Per the memory notes, all jobs run on `macos-14`, the Windows job builds a real
-`mpv.exe`, and the pin is on `mmt-tlv-avsplus`. Not fixed here.
+#21037 note (design section 8). The CI branch and the mpv-builds pin moved on 2026-10-30; the
+iina-builds pin is still `c180246b` (old demuxer).

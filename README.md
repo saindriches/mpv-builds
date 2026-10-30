@@ -1,8 +1,9 @@
 # mpv-builds
 
 Builds [mpv](https://github.com/mpv-player/mpv) (the player app) against an FFmpeg compiled from our
-**MMT/TLV fork branch** ([`saindriches/FFmpeg` @ `mmt-tlv`](https://github.com/saindriches/FFmpeg/tree/mmt-tlv)),
-which carries the **MMT/TLV demuxer** (ARIB STD-B32) in-tree. The resulting mpv plays Japanese
+fork branch ([`saindriches/FFmpeg` @ `bt1869-tlv-ci`](https://github.com/saindriches/FFmpeg/tree/bt1869-tlv-ci)),
+which carries the **`bt1869_tlv` demuxer** (MMT/TLV, ITU-R BT.1869, ARIB STD-B32 and STD-B60) and
+an AVS+ decoder in-tree. The resulting mpv plays Japanese
 ISDB-S3 4K/8K `.mmts` files natively, including on scrambled streams, where the clear signaling
 still yields timing, service, and track metadata.
 
@@ -16,13 +17,14 @@ CI (`.github/workflows/build.yml`) builds per platform and uploads an artifact:
 
 | platform | runner | output |
 |---|---|---|
-| macOS arm64 | `macos-14` | `mpv.app` (via mpv's `macos-bundle` meson target) |
-| macOS x86_64 | `macos-13` | `mpv.app` |
+| macOS arm64 | `macos-26` | `mpv.app` (via mpv's `macos-bundle` meson target) |
 | Linux x86_64 | `ubuntu-latest` | `mpv` binary + libmpv |
-| Windows x86_64 | `ubuntu-latest` (mingw) | scaffold: the patched FFmpeg cross-builds; the mpv step still needs wiring |
+| Windows x86_64 | `windows-latest` (MSYS2 UCRT64) | `mpv.exe` plus its DLLs |
 
-The patched `libav*` are embedded in `mpv.app/Contents/Frameworks` and ad-hoc signed so it runs on
-a personal machine without a developer certificate.
+Our `libav*` are embedded in `mpv.app/Contents/MacOS/lib` and the bundle is ad-hoc signed, so it
+runs on a personal machine without a developer certificate. There is no Intel macOS build since
+2026-10: Homebrew no longer installs on Intel Macs, which left the old universal build's x86_64
+half without dependencies.
 
 ## Caching (fast iteration)
 
@@ -39,7 +41,8 @@ in the workflow.
 
 ## Pinned inputs
 
-See `manifest.env`: `FFMPEG_REPO` + `FFMPEG_REF` (the MMT/TLV fork and its pinned `mmt-tlv` commit),
+See `manifest.env`: `FFMPEG_REPO` + `FFMPEG_REF` (the fork and its pinned `bt1869-tlv-ci` commit;
+the file says what the branch holds and how to roll back),
 `MPV_REF` (git ref, `master` for nightly), `CACHE_EPOCH`.
 
 ## Triggers
@@ -50,6 +53,6 @@ See `manifest.env`: `FFMPEG_REPO` + `FFMPEG_REF` (the MMT/TLV fork and its pinne
 
 ## Status
 
-macOS and Linux are the intended paths; the Windows/mingw job builds the fork's FFmpeg but its mpv
-step is a scaffold to iterate on in CI. First runs may need fixups; GitHub Actions can't be
-validated locally.
+All three platforms build a player. The nightly run failed from 2026-08-29 (Homebrew dropped bottles for
+macos-14 and Intel installs, MSYS2 dropped MINGW64 packages) and GitHub then disabled the
+schedule; it was fixed and re-enabled on 2026-10-30. GitHub Actions can't be validated locally.

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Build FFmpeg from our MMT/TLV fork branch ($FFMPEG_REPO @ $FFMPEG_REF), installed to $PREFIX.
+# Build FFmpeg from our fork ($FFMPEG_REPO @ $FFMPEG_REF), installed to $PREFIX.
 # Shared by the macOS and Linux jobs (both POSIX: configure + make). Windows uses the mingw job.
 #
-# The MMT/TLV demuxer (ARIB STD-B32) is already in the fork branch (saindriches/FFmpeg @ mmt-tlv),
-# so there is no patch step. The config is "full enough for mpv playback": FFmpeg enables its
-# decoders/demuxers/parsers by default, so we only turn OFF what a player never needs (programs,
-# docs) and turn ON the platform hwaccel and the mmttlv demuxer.
+# The BT.1869 TLV demuxer (bt1869_tlv: MMT/TLV per ARIB STD-B32 and STD-B60) is already in the fork
+# branch (saindriches/FFmpeg @ bt1869-tlv-ci), so there is no patch step. The config is "full enough
+# for mpv playback": FFmpeg enables its decoders/demuxers/parsers by default, so we only turn OFF
+# what a player never needs (programs, docs) and turn ON the platform hwaccel and that demuxer.
 #
 # Idempotent: if $PREFIX already has libavformat.pc (restored from cache) it does nothing, so the
 # cache hit path is free.
@@ -35,9 +35,9 @@ esac
   --enable-shared --disable-static \
   --disable-programs --disable-doc \
   --enable-network \
-  --enable-demuxer=mmttlv \
+  --enable-demuxer=bt1869_tlv \
   "${extra[@]}"
 
 make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 make install
-echo "mpv-builds: FFmpeg ${FFMPEG_REPO}@${FFMPEG_REF} (mmt-tlv) installed to $PREFIX"
+echo "mpv-builds: FFmpeg ${FFMPEG_REPO}@${FFMPEG_REF} installed to $PREFIX"

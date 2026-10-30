@@ -1,9 +1,10 @@
 name: build
 
 # Builds mpv (the player: mpv.app on macOS, mpv.exe on Windows, the binary on Linux) against an
-# FFmpeg compiled from our MMT/TLV fork branch (saindriches/FFmpeg @ mmt-tlv, pinned by commit), so
-# mpv plays ISDB-S3 4K/8K .mmts natively. FFmpeg carries the MMT/TLV demuxer in-tree now (no patch
-# step); mpv's own source tweaks still live in patches/mpv/ and apply in order.
+# FFmpeg compiled from our fork (saindriches/FFmpeg @ bt1869-tlv-ci, pinned by commit), so mpv plays
+# ISDB-S3 4K/8K .mmts natively through the bt1869_tlv demuxer. The branch is the bt1869-tlv upstream
+# series on the fork base (413346bd, master of 2025-12-02) plus the AVS+ decoder commits. mpv's own
+# source tweaks live in patches/mpv/ and apply in order.
 #
 # Caching, so iterating is cheap:
 #   1. The built FFmpeg prefix is cached, keyed on the pinned fork commit (FFMPEG_REF). It only
@@ -11,11 +12,9 @@ name: build
 #   2. ccache accelerates recompiles (mpv, and FFmpeg when it does rebuild), keyed per platform
 #      with a rolling restore-key (mpv's own CI pattern).
 #
-# macOS ships a UNIVERSAL mpv.app: each arch builds its own half on macos-14 (the arm64 half
-# natively, the x86_64 half under Rosetta 2 with the /usr/local Homebrew), then a dependent job
-# lipos the executable and every embedded dylib into one fat .app and ad-hoc re-signs it. We build
-# everything on macos-14 because the macos-13 (Intel) runners no longer schedule (they queue for
-# ~55 min, then cancel).
+# macOS ships an Apple Silicon (arm64) mpv.app built on macos-26. The universal build is gone:
+# Homebrew no longer installs on Intel Macs ("only supported on Apple Silicon processors"), so the
+# x86_64 half had no dependencies, and macos-14 lost its Homebrew bottles (2026-10).
 
 on:
   push:
@@ -42,39 +41,23 @@ concurrency:
 
 env:
   FFMPEG_REPO: "saindriches/FFmpeg"
-  FFMPEG_REF: "059cd8511cb6ee390879c128e92e272b502573ac"
+  FFMPEG_REF: "0d40e016d0f3041501e2bd7d746105d151f97b5a"
   MPV_REF: ${{ github.event.inputs.mpv_ref || 'master' }}
   CACHE_EPOCH: "1"
 
 jobs:
-  # ---------------------------------------------------------------- macOS halves (arm64 + x86_64) -
-  # Each arch builds its own mpv.app on macos-14 and uploads it. The arm64 half is native; the
-  # x86_64 half runs under Rosetta 2 against the x86_64 Homebrew at /usr/local. The universal job
-  # below downloads both and lipos them together.
+  # ---------------------------------------------------------------- macOS (arm64) ---------------
   macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [arm64, x86_64]
-    runs-on: macos-14
+    runs-on: macos-26
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: "800M"
     steps:
       # FFmpeg must build OUTSIDE the workspace: its path contains "mpv" (repo mpv-builds), which
       # trips dylib_unhell's self-reference guard so macos-bundle won't relocate our libav*. The
-      # runner context is unavailable in job-level env, so set PREFIX here via $RUNNER_TEMP. Also
-      # pin the per-arch Homebrew prefix and an "arch -<arch>" wrapper the later steps run under.
-      - name: Set per-arch build environment
-        run: |
-          echo "PREFIX=$RUNNER_TEMP/ffprefix" >> "$GITHUB_ENV"
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            echo "BREW=/usr/local/bin/brew" >> "$GITHUB_ENV"
-            echo "ARCH_RUN=arch -x86_64" >> "$GITHUB_ENV"
-          else
-            echo "BREW=/opt/homebrew/bin/brew" >> "$GITHUB_ENV"
-            echo "ARCH_RUN=arch -arm64" >> "$GITHUB_ENV"
-          fi
+      # runner context is unavailable in job-level env, so set PREFIX here via $RUNNER_TEMP.
+      - name: Set build environment
+        run: echo "PREFIX=$RUNNER_TEMP/ffprefix" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
 
@@ -98,28 +81,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PREFIX }}
-          key: ffmpeg-macos-${{ matrix.arch }}-rt-${{ env.FFMPEG_REF }}-epoch${{ env.CACHE_EPOCH }}
+          key: ffmpeg-macos-arm64-${{ env.FFMPEG_REF }}-epoch${{ env.CACHE_EPOCH }}
 
       - name: ccache
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-macos-${{ matrix.arch }}-${{ github.run_id }}
-          restore-keys: ccache-macos-${{ matrix.arch }}-
-
-      # The x86_64 Homebrew is not preinstalled on the arm64 runner; install it at /usr/local and
-      # drive it with "arch -x86_64" so it fetches the Intel bottles. The arm64 Homebrew at
-      # /opt/homebrew is already present.
-      - name: Install x86_64 Homebrew (Rosetta)
-        if: ${{ matrix.arch == 'x86_64' }}
-        run: |
-          set -euxo pipefail
-          if [ ! -x /usr/local/bin/brew ]; then
-            arch -x86_64 /bin/bash -c \
-              "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
-              </dev/null
-          fi
-          arch -x86_64 /usr/local/bin/brew --version
+          key: ccache-macos-arm64-${{ github.run_id }}
+          restore-keys: ccache-macos-arm64-
 
       - name: Install toolchain + mpv deps (not FFmpeg; we build that patched)
         env:
@@ -127,18 +96,9 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
           set -euxo pipefail
-          # On the x86_64 half the /usr/local Homebrew must symlink its python (a meson dependency)
-          # into /usr/local/bin, but the runner preinstalls a Python.framework whose stray symlinks
-          # (python3, pip3, idle3...) already occupy those paths and make "brew link" fail. Clear
-          # them first so the brew python links cleanly. The arm64 /opt/homebrew tree is untouched.
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            sudo rm -f /usr/local/bin/2to3* /usr/local/bin/idle3* /usr/local/bin/pydoc3* \
-                       /usr/local/bin/python3 /usr/local/bin/python3-config \
-                       /usr/local/bin/python3.* /usr/local/bin/pip3 /usr/local/bin/pip3.* || true
-          fi
-          $ARCH_RUN "$BREW" update
+          brew update
           # --overwrite so a formula that still collides on link takes the path rather than failing.
-          $ARCH_RUN "$BREW" install --overwrite ccache nasm meson ninja pkg-config \
+          brew install --overwrite ccache nasm meson ninja pkg-config \
             luajit libass libplacebo little-cms2 uchardet mujs \
             libarchive libbluray rubberband zimg libcaca libcdio-paranoia libdvdnav \
             molten-vk vulkan-loader vulkan-headers rust
@@ -148,7 +108,7 @@ jobs:
         env:
           CC: "ccache clang"
           CXX: "ccache clang++"
-        run: $ARCH_RUN /bin/bash ./scripts/build-ffmpeg.sh
+        run: ./scripts/build-ffmpeg.sh
 
       - name: Build mpv + app bundle
         env:
@@ -156,22 +116,22 @@ jobs:
           CXX: "ccache clang++"
         run: |
           set -euxo pipefail
-          BREW_PREFIX="$($ARCH_RUN "$BREW" --prefix)"
+          BREW_PREFIX="$(brew --prefix)"
           # our patched FFmpeg first, then Homebrew for the rest of the deps
-          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$BREW_PREFIX/lib/pkgconfig:$($ARCH_RUN "$BREW" --prefix libarchive)/lib/pkgconfig"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$BREW_PREFIX/lib/pkgconfig:$(brew --prefix libarchive)/lib/pkgconfig"
           cd mpv
-          $ARCH_RUN meson setup build \
+          meson setup build \
             -Dprefix="$GITHUB_WORKSPACE/mpv-out" \
             -Dlibmpv=true \
             -D{cocoa,coreaudio,gl-cocoa,videotoolbox-gl,videotoolbox-pl}=enabled \
             -D{swift-build,macos-cocoa-cb,macos-media-player,macos-touchbar}=enabled \
             -D{gl,plain-gl,iconv,lcms2,lua,libarchive,libbluray,rubberband,zimg,zlib,vulkan}=enabled \
             -Dobjc_args="-Wno-error=deprecated -Wno-error=deprecated-declarations"
-          $ARCH_RUN meson compile -C build
-          $ARCH_RUN meson compile -C build macos-bundle       # -> build/mpv.app
+          meson compile -C build
+          meson compile -C build macos-bundle       # -> build/mpv.app
           test -d build/mpv.app || { echo "::error::mpv.app not produced"; exit 1; }
 
-      - name: Verify half is the right arch (no build-path leaks)
+      - name: Verify bundle (relocated libav*, launches)
         run: |
           set -euxo pipefail
           APP="$GITHUB_WORKSPACE/mpv/build/mpv.app"; BIN="$APP/Contents/MacOS/mpv"
@@ -180,117 +140,23 @@ jobs:
           if otool -L "$BIN" | grep -q 'ffprefix/lib/'; then
             echo "::error::mpv still references the build prefix"; otool -L "$BIN"; exit 1; fi
           test -f "$APP/Contents/MacOS/lib/libavcodec.62.dylib" || { echo "::error::libavcodec not relocated into the bundle"; exit 1; }
-          file "$BIN"
-          # Each half runs on the arm64 host, but the x86_64 half cannot launch natively without
-          # Rosetta wiring for its deps; the universal job runs the launch smoke test. Here we only
-          # confirm the half carries the expected arch.
+          strings "$APP"/Contents/MacOS/lib/libavformat.*.dylib | grep -qx bt1869_tlv \
+            || { echo "::error::bundled libavformat lacks the bt1869_tlv demuxer"; exit 1; }
           lipo -archs "$BIN"
-          lipo -archs "$BIN" | grep -qw "${{ matrix.arch }}" \
-            || { echo "::error::half is not ${{ matrix.arch }}"; exit 1; }
+          codesign --verify --deep --strict "$APP" || codesign --force --deep --sign - "$APP"
+          "$BIN" --version
 
-      - name: Package half
+      - name: Package
         run: |
           set -euxo pipefail
           cd "$GITHUB_WORKSPACE/mpv/build"
-          # Keep the .app tree intact (symlinks, permissions) for the lipo step downstream.
-          tar cJf "$RUNNER_TEMP/mpv-macos-${{ matrix.arch }}.tar.xz" mpv.app
-          shasum -a 256 "$RUNNER_TEMP/mpv-macos-${{ matrix.arch }}.tar.xz"
+          tar cJf "$RUNNER_TEMP/mpv-macos-arm64.tar.xz" mpv.app
+          shasum -a 256 "$RUNNER_TEMP/mpv-macos-arm64.tar.xz"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mpv-macos-half-${{ matrix.arch }}
-          path: ${{ runner.temp }}/mpv-macos-${{ matrix.arch }}.tar.xz
-          if-no-files-found: error
-
-  # ---------------------------------------------------------------- macOS universal (lipo) --------
-  # Downloads both arch halves and lipos the executable plus every embedded Mach-O (dylibs under
-  # Contents/MacOS and Contents/Frameworks) into one universal .app, then ad-hoc re-signs it.
-  macos-universal:
-    needs: macos
-    runs-on: macos-14
-    steps:
-      - name: Download arm64 half
-        uses: actions/download-artifact@v4
-        with:
-          name: mpv-macos-half-arm64
-          path: ${{ github.workspace }}/halves/arm64
-
-      - name: Download x86_64 half
-        uses: actions/download-artifact@v4
-        with:
-          name: mpv-macos-half-x86_64
-          path: ${{ github.workspace }}/halves/x86_64
-
-      - name: Lipo halves into one universal mpv.app
-        run: |
-          set -euxo pipefail
-          cd "$GITHUB_WORKSPACE"
-          mkdir -p arm64 x86_64 out
-          tar xf halves/arm64/mpv-macos-arm64.tar.xz -C arm64
-          tar xf halves/x86_64/mpv-macos-x86_64.tar.xz -C x86_64
-          # Use the arm64 .app as the skeleton (identical layout to the x86_64 one) and fatten
-          # every Mach-O in it with its x86_64 counterpart.
-          cp -R arm64/mpv.app out/mpv.app
-          APP="$GITHUB_WORKSPACE/out/mpv.app"
-          fatten() {
-            local rel="$1"
-            local a="$GITHUB_WORKSPACE/arm64/mpv.app/$rel"
-            local x="$GITHUB_WORKSPACE/x86_64/mpv.app/$rel"
-            local o="$APP/$rel"
-            if [ ! -f "$x" ]; then
-              echo "::warning::x86_64 half missing $rel; leaving arm64-only"
-              return 0
-            fi
-            # Only lipo actual Mach-O files; skip symlinks and non-binaries.
-            if [ -L "$a" ]; then return 0; fi
-            if ! file -b "$a" | grep -qiE 'mach-o|universal binary'; then return 0; fi
-            lipo -create "$a" "$x" -output "$o"
-          }
-          export -f fatten
-          export APP GITHUB_WORKSPACE
-          # The main executable, then every regular file under MacOS/ and Frameworks/.
-          fatten "Contents/MacOS/mpv"
-          while IFS= read -r -d '' f; do
-            rel="${f#"$GITHUB_WORKSPACE"/arm64/mpv.app/}"
-            [ "$rel" = "Contents/MacOS/mpv" ] && continue
-            fatten "$rel"
-          done < <(find "$GITHUB_WORKSPACE/arm64/mpv.app/Contents/MacOS" "$GITHUB_WORKSPACE/arm64/mpv.app/Contents/Frameworks" -type f -print0 2>/dev/null)
-
-      - name: Ad-hoc re-sign the universal bundle
-        run: |
-          set -euxo pipefail
-          APP="$GITHUB_WORKSPACE/out/mpv.app"
-          codesign --remove-signature "$APP" 2>/dev/null || true
-          codesign --force --deep --sign - "$APP"
-          codesign --verify --deep --strict "$APP"
-
-      - name: Verify universal bundle (both arches, launches, no leaks)
-        run: |
-          set -euxo pipefail
-          APP="$GITHUB_WORKSPACE/out/mpv.app"; BIN="$APP/Contents/MacOS/mpv"
-          file "$BIN"
-          lipo -archs "$BIN"
-          lipo -archs "$BIN" | grep -qw arm64  || { echo "::error::missing arm64";  exit 1; }
-          lipo -archs "$BIN" | grep -qw x86_64 || { echo "::error::missing x86_64"; exit 1; }
-          test -f "$APP/Contents/MacOS/lib/libavcodec.62.dylib" || { echo "::error::libavcodec not in bundle"; exit 1; }
-          lipo -archs "$APP/Contents/MacOS/lib/libavcodec.62.dylib" | grep -qw x86_64 \
-            || { echo "::error::embedded libavcodec is not universal"; exit 1; }
-          if otool -L "$BIN" | grep -q 'ffprefix/lib/'; then
-            echo "::error::universal mpv references the build prefix"; otool -L "$BIN"; exit 1; fi
-          # Launch smoke test (runs natively on the arm64 host via the arm64 slice).
-          "$BIN" --version
-
-      - name: Package universal
-        run: |
-          set -euxo pipefail
-          cd "$GITHUB_WORKSPACE/out"
-          tar cJf "$RUNNER_TEMP/mpv-macos-universal.tar.xz" mpv.app
-          shasum -a 256 "$RUNNER_TEMP/mpv-macos-universal.tar.xz"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mpv-macos-universal
-          path: ${{ runner.temp }}/mpv-macos-universal.tar.xz
+          name: mpv-macos-arm64
+          path: ${{ runner.temp }}/mpv-macos-arm64.tar.xz
           if-no-files-found: error
 
   # ---------------------------------------------------------------- Linux (x86_64) ---------------
@@ -366,7 +232,8 @@ jobs:
         with: { name: mpv-linux-x86_64, path: "${{ runner.temp }}/mpv-linux-x86_64.tar.xz", if-no-files-found: error }
 
   # ---------------------------------------------------------------- Windows (x86_64, MSYS2) ------
-  # Builds a real mpv.exe on a windows-latest runner via MSYS2 (MINGW64). We build our patched
+  # Builds a real mpv.exe on a windows-latest runner via MSYS2 (UCRT64; MSYS2 dropped packages
+  # such as rubberband and luajit from MINGW64 in 2026, which broke the old job). We build our patched
   # FFmpeg from source into a prefix, then build mpv against it with the mingw-w64 deps, and package
   # mpv.exe plus its runtime DLLs. The FFmpeg prefix is cached like the other platforms.
   windows:
@@ -384,31 +251,30 @@ jobs:
 
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: >-
             base-devel git zip
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-tools
-            mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-meson
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-nasm
-            mingw-w64-x86_64-yasm
-            mingw-w64-x86_64-libass
-            mingw-w64-x86_64-libplacebo
-            mingw-w64-x86_64-luajit
-            mingw-w64-x86_64-lcms2
-            mingw-w64-x86_64-uchardet
-            mingw-w64-x86_64-libarchive
-            mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-rubberband
-            mingw-w64-x86_64-zimg
-            mingw-w64-x86_64-shaderc
-            mingw-w64-x86_64-vulkan-headers
-            mingw-w64-x86_64-vulkan-loader
-            mingw-w64-x86_64-spirv-cross
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-tools
+            mingw-w64-ucrt-x86_64-ccache
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-libass
+            mingw-w64-ucrt-x86_64-libplacebo
+            mingw-w64-ucrt-x86_64-luajit
+            mingw-w64-ucrt-x86_64-lcms2
+            mingw-w64-ucrt-x86_64-uchardet
+            mingw-w64-ucrt-x86_64-libarchive
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-rubberband
+            mingw-w64-ucrt-x86_64-zimg
+            mingw-w64-ucrt-x86_64-shaderc
+            mingw-w64-ucrt-x86_64-vulkan-headers
+            mingw-w64-ucrt-x86_64-vulkan-loader
+            mingw-w64-ucrt-x86_64-spirv-cross
 
       - name: Set FFmpeg prefix (MSYS2 path)
         run: echo "PREFIX=$(cygpath -u "$RUNNER_TEMP")/ffprefix" >> "$GITHUB_ENV"
@@ -421,7 +287,7 @@ jobs:
           path: ${{ runner.temp }}/ffprefix
           key: ffmpeg-windows-x86_64-msys2-${{ env.FFMPEG_REF }}-epoch${{ env.CACHE_EPOCH }}
 
-      - name: Build FFmpeg from mmt-tlv fork (MSYS2 MINGW64)
+      - name: Build FFmpeg from the fork (MSYS2 UCRT64)
         if: ${{ steps.ffcache.outputs.cache-hit != 'true' }}
         run: |
           set -euxo pipefail
@@ -430,23 +296,23 @@ jobs:
           git clone --filter=blob:none --no-checkout "https://github.com/${FFMPEG_REPO}.git" ffmpeg-src
           cd ffmpeg-src
           git checkout --detach "$FFMPEG_REF"
-          # Native build under MINGW64 (no cross-prefix needed; the toolchain targets Windows).
+          # Native build under UCRT64 (no cross-prefix needed; the toolchain targets Windows).
           ./configure --prefix="$PREFIX" \
             --enable-gpl --enable-version3 \
             --enable-shared --disable-static \
             --disable-programs --disable-doc \
             --enable-network \
-            --enable-demuxer=mmttlv
+            --enable-demuxer=bt1869_tlv
           make -j"$(nproc)"
           make install
 
-      - name: Verify FFmpeg carries the mmttlv demuxer
+      - name: Verify FFmpeg carries the bt1869_tlv demuxer
         run: |
           set -euxo pipefail
-          strings "$PREFIX"/bin/avformat-*.dll | grep -qi mmttlv \
-            || { echo "::error::patched FFmpeg DLL lacks the mmttlv demuxer"; exit 1; }
+          strings "$PREFIX"/bin/avformat-*.dll | grep -qx bt1869_tlv \
+            || { echo "::error::FFmpeg DLL lacks the bt1869_tlv demuxer"; exit 1; }
 
-      - name: Build mpv (MINGW64) against patched FFmpeg
+      - name: Build mpv (UCRT64) against our FFmpeg
         run: |
           set -euxo pipefail
           cd mpv
@@ -454,8 +320,8 @@ jobs:
           for p in "$GITHUB_WORKSPACE"/patches/mpv/*.patch; do
             echo "mpv-builds: applying $(basename "$p")"; patch -p1 -F3 -i "$p"
           done
-          # Our patched FFmpeg first, then the MSYS2 mingw-w64 packages for the rest.
-          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:/mingw64/lib/pkgconfig"
+          # Our FFmpeg first, then the MSYS2 UCRT64 packages for the rest.
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:/ucrt64/lib/pkgconfig"
           meson setup build \
             -Dprefix="$GITHUB_WORKSPACE/mpv-out" \
             -Dlibmpv=true \
@@ -463,13 +329,6 @@ jobs:
             -Dd3d11=enabled -Dwin32-threads=enabled
           meson compile -C build
           test -f build/mpv.exe || { echo "::error::mpv.exe not produced"; exit 1; }
-
-      - name: Verify mpv.exe carries the mmttlv demuxer
-        run: |
-          set -euxo pipefail
-          strings mpv/build/mpv.exe | grep -qi mmttlv || echo "::warning::mmttlv string not in mpv.exe (it lives in the FFmpeg DLL); checking DLL"
-          strings "$PREFIX"/bin/avformat-*.dll | grep -qi mmttlv \
-            || { echo "::error::mmttlv demuxer not present in the FFmpeg DLL mpv links"; exit 1; }
 
       - name: Package mpv.exe + runtime DLLs
         run: |
@@ -479,24 +338,24 @@ jobs:
           cp mpv/build/mpv.exe "$out/"
           # Our patched FFmpeg DLLs.
           cp "$PREFIX"/bin/*.dll "$out/" 2>/dev/null || true
-          # Resolve mpv.exe's mingw64 dependency DLLs and copy them in (transitively).
+          # Resolve mpv.exe's ucrt64 dependency DLLs and copy them in (transitively).
           copy_deps() {
             local bin="$1"
             ntldd -R "$bin" 2>/dev/null \
-              | grep -oiE '/mingw64/bin/[^ ]+\.dll' | sort -u \
+              | grep -oiE '/ucrt64/bin/[^ ]+\.dll' | sort -u \
               | while read -r dep; do
                   [ -f "$out/$(basename "$dep")" ] || cp "$dep" "$out/"
                 done
           }
-          # ntldd (mingw-w64-x86_64-tools) walks the DLL tree; if missing, fall back to a broad copy.
+          # ntldd (mingw-w64-ucrt-x86_64-tools) walks the DLL tree; if missing, fall back to a broad copy.
           if command -v ntldd >/dev/null 2>&1; then
             copy_deps "$out/mpv.exe"
             for d in "$out"/*.dll; do copy_deps "$d"; done
           else
-            echo "::warning::ntldd not found; copying the full mingw64 DLL set (larger zip)"
-            cp /mingw64/bin/*.dll "$out/" 2>/dev/null || true
+            echo "::warning::ntldd not found; copying the full ucrt64 DLL set (larger zip)"
+            cp /ucrt64/bin/*.dll "$out/" 2>/dev/null || true
           fi
-          # Zip with the MSYS2 "zip" package (7z is not on the MINGW64 PATH).
+          # Zip with the MSYS2 "zip" package (7z is not on the UCRT64 PATH).
           cd "$(dirname "$out")"
           zip -qr "$(cygpath -u "$RUNNER_TEMP")/mpv-windows-x86_64.zip" "$(basename "$out")"
           ls -l "$out"
