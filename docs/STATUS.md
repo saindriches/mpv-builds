@@ -134,7 +134,16 @@ MFUs go straight into the buffer that becomes the packet, signalling assemblers 
 and the extended timestamp cache is sized to its data. Demuxer heap 3.51 to 1.43 MiB (4K) and
 5.88 to 2.20 MiB (8K); hostile inputs from 4 to 49 MiB down to 0.03 to 3.1 MiB; packets
 identical but for one reordered audio packet on a lossy cut. The series is now **2b9732d4, 8845ad50, 8b5c3da2, cbe1b55e**,
-dev 4d6d22c5; all checks pass and harness `series-10` is the reference. Next: the user reviews
+dev 4d6d22c5; all checks pass and harness `series-10` is the reference.
+
+ISO/IEC 23008-1:2023 audit (2026-10-30, the standard is now at `/Volumes/Nearline/ISO_IEC/`):
+widths read on the page images, report `iso-audit.md` and verdicts in the audit README's last
+section. Confirmed deviations, none applied: descriptor length widths for tags 0x0000 to 0x000C
+(CRI 16, GFDT 32, SI and four others 16, AT 32, where the code reads 8; the 0x8000 and up widths
+are ARIB's, not ISO's); MMTP version 1 is ISO's QoS header, not "ATSC 3.0" as the code and docs
+call it; FEC_type 1's 32-bit footer is not removed; location_type 0x06 makes the whole MPT
+fail; 'hvc1' assets cannot get their parameter sets. Standalone MPT/MPI messages and the ISO MP
+table layout stay for the ISO and ATSC series. Which to fix is the user's call. Next: the user reviews
 the series; push, PR, the #21037 note and the sample each need their go.
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
