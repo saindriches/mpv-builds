@@ -22,12 +22,16 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 ## Pins (settled)
 
-- mpv-builds `manifest.env` and the workflow: `FFMPEG_REF=0d40e016` (2026-10-30), head of
+- mpv-builds `manifest.env` and the workflow: `FFMPEG_REF=1216d32d` (2026-10-30), head of
   `fork/bt1869-tlv-ci`: fork base `413346bd` + the four bt1869-tlv series commits + one CI-only
   commit adapting them to that base (`avpriv_packet_list_*`, no `av_program_add_stream_index2`,
   FATE reference regenerated) + the 29 AVS+ commits of `mmt-tlv-avsplus`, whose libavcodec is
-  byte-identical. Checked locally: builds without warnings in our files, the TLV FATE test and
-  checkasm-cavsdsp pass, harness packets equal `series-11` on all 22 samples. Known difference:
+  byte-identical. 1216d32d replaced 0d40e016 the same day with the boundary fix: an access unit
+  that cannot be timed after a stream pause is dropped instead of getting a timestamp minutes in
+  the past (the earthquake capture's audio 0xf311 jumped back 188 s). Checked locally: builds
+  without warnings in our files, the TLV FATE test passes, no backward timestamp on the
+  earthquake capture; 0d40e016 also passed checkasm-cavsdsp and matched harness `series-11` on
+  all 22 samples, and the fix leaves the series harness unchanged (`series-12`). Known difference:
   on 7 samples ffprobe's seek output lists one or two packets more or fewer right after the seek
   point than on master; the demuxer is the same, so this is generic code of the older base (the
   local clone is shallow, so not bisected). Rollback: `059cd851` (`mmt-tlv-avsplus`, untouched).
