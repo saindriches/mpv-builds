@@ -140,7 +140,7 @@ jobs:
           if otool -L "$BIN" | grep -q 'ffprefix/lib/'; then
             echo "::error::mpv still references the build prefix"; otool -L "$BIN"; exit 1; fi
           test -f "$APP/Contents/MacOS/lib/libavcodec.62.dylib" || { echo "::error::libavcodec not relocated into the bundle"; exit 1; }
-          strings "$APP"/Contents/MacOS/lib/libavformat.*.dylib | grep -qx bt1869_tlv \
+          strings "$APP"/Contents/MacOS/lib/libavformat.*.dylib | grep -x bt1869_tlv >/dev/null \
             || { echo "::error::bundled libavformat lacks the bt1869_tlv demuxer"; exit 1; }
           lipo -archs "$BIN"
           codesign --verify --deep --strict "$APP" || codesign --force --deep --sign - "$APP"
@@ -309,7 +309,7 @@ jobs:
       - name: Verify FFmpeg carries the bt1869_tlv demuxer
         run: |
           set -euxo pipefail
-          strings "$PREFIX"/bin/avformat-*.dll | grep -qx bt1869_tlv \
+          strings "$PREFIX"/bin/avformat-*.dll | grep -x bt1869_tlv >/dev/null \
             || { echo "::error::FFmpeg DLL lacks the bt1869_tlv demuxer"; exit 1; }
 
       - name: Build mpv (UCRT64) against our FFmpeg
