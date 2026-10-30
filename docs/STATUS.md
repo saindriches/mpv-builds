@@ -143,7 +143,9 @@ section. Confirmed deviations, none applied: descriptor length widths for tags 0
 are ARIB's, not ISO's); MMTP version 1 is ISO's QoS header, not "ATSC 3.0" as the code and docs
 call it; FEC_type 1's 32-bit footer is not removed; location_type 0x06 makes the whole MPT
 fail; 'hvc1' assets cannot get their parameter sets. Standalone MPT/MPI messages and the ISO MP
-table layout stay for the ISO and ATSC series. Which to fix is the user's call. Next: the user reviews
+table layout stay for the ISO and ATSC series. All of it was re-checked on a scan of the
+original (`ISO-IEC-23008-1-2023-scan.pdf`, now the copy to decide from; `iso-scan-check.md`):
+nothing refuted. Which to fix is the user's call. Next: the user reviews
 the series; push, PR, the #21037 note and the sample each need their go.
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
