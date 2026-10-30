@@ -138,15 +138,20 @@ dev 4d6d22c5; all checks pass and harness `series-10` is the reference.
 
 ISO/IEC 23008-1:2023 audit (2026-10-30, the standard is now at `/Volumes/Nearline/ISO_IEC/`):
 widths read on the page images, report `iso-audit.md` and verdicts in the audit README's last
-section. Confirmed deviations, none applied: descriptor length widths for tags 0x0000 to 0x000C
+section. Confirmed deviations: descriptor length widths for tags 0x0000 to 0x000C
 (CRI 16, GFDT 32, SI and four others 16, AT 32, where the code reads 8; the 0x8000 and up widths
 are ARIB's, not ISO's); MMTP version 1 is ISO's QoS header, not "ATSC 3.0" as the code and docs
 call it; FEC_type 1's 32-bit footer is not removed; location_type 0x06 makes the whole MPT
 fail; 'hvc1' assets cannot get their parameter sets. Standalone MPT/MPI messages and the ISO MP
 table layout stay for the ISO and ATSC series. All of it was re-checked on a scan of the
 original (`ISO-IEC-23008-1-2023-scan.pdf`, now the copy to decide from; `iso-scan-check.md`):
-nothing refuted. Which to fix is the user's call. Next: the user reviews
-the series; push, PR, the #21037 note and the sample each need their go.
+nothing refuted. On the user's go the first five were fixed in commit 1 (widths per tag from
+ISO Table 103, the 0x8000 and up widths only in ARIB flows; version 1 named the QoS header;
+FEC_type read, repair packets skipped; location_type 0x06 skipped; 'hvc1' no longer mapped),
+each checked on a constructed input. The series is now **1e3bb37f, 5abf6565, 82dab9ce,
+d0e851c9**, dev c0665af6; all checks pass and harness `series-11` (equal to `series-10`) is the
+reference. Next: the user reviews the series; push, PR, the #21037 note and the sample each
+need their go.
 
 Next, the user reviews the four commits on `bt1869-tlv` (`git log -p 86444dd3..bt1869-tlv` in
 `~/ffmpeg-tlv-series`). Then, each only on their explicit go: push the branch to a fork on
