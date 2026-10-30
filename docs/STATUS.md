@@ -34,7 +34,10 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 - mpv-builds CI since 2026-10-30: macOS arm64 only on `macos-26` (Homebrew no longer installs on
   Intel, and `macos-14` lost its bottles; the universal job is gone, on the user's choice),
   Windows on MSYS2 UCRT64 (MINGW64 lost rubberband and luajit), Linux unchanged. It had failed
-  nightly from 2026-08-29 until GitHub disabled the schedule.
+  nightly from 2026-08-29 until GitHub disabled the schedule. Run 41005311466 (6dee5cc) is green on all
+  three; its arm64 mpv.app plays 20260628_1313 across its program boundary with no dropped
+  frames, where the old mmttlv demuxer stops reading. Audit and tools:
+  `/Volumes/Nearline/mmt_tlv/ffmpeg_regress/boundary/README.txt` (local disk, not in a repo).
 - iina-builds `.github/workflows/build.yml`: `FFMPEG_REF=c180246b`, one commit behind on purpose
   (that commit is x86 SSE2 only; the IINA app is arm64).
 - Neither workflow sets `restore-keys` for the FFmpeg prefix, so a pin bump is a full rebuild.
