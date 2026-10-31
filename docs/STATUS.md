@@ -29,8 +29,8 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
   commits since 2025-12 were resolved by hand (bit reader set up once with `init_get_bits8()`,
   `CAVS_DIR_MV`/`CAVS_INTRA_MV` macros, coefficient block inside `AVSContext`, no `emms_c()`,
   annotated fall-throughs), lavc 63.26.100. Checked locally: builds without warnings in our
-  files; checkasm cavsdsp (qpel, idct8, loop filter on NEON) and FATE `cavs-aec` and
-  `bt1869-tlv-demux` pass; the AVS+ capture `/Volumes/Nearline/avs_codecs/BRTV3HD.ts` decodes
+  files; checkasm cavsdsp (qpel, idct8, loop filter on NEON) and FATE `cavs`, `cavs-bunny`,
+  `cavs-demux`, `cavs-aec` and `bt1869-tlv-demux` pass; the AVS+ capture `/Volumes/Nearline/avs_codecs/BRTV3HD.ts` decodes
   to the same 109 frame hashes as the old base; the MMT harness (`ci-master`) equals `series-12`
   on all 22 samples and every seek, so the seek differences seen on the old base are gone.
   Rollbacks: `bt1869-tlv-ci-2025-base` (`1216d32d`, the same demuxer on fork base `413346bd`
@@ -47,6 +47,9 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
   now builds the dependencies with IINA's own `iina/deps-buildscripts` (pinned `ee35579`, mpv
   0.41.0) with FFmpeg swapped for our commit, and patches our DeckLink IINA branch to mpv 0.41
   with upstream IINA `2353be00` (`patches/iina/0001`). Previous pin `c180246b` (old demuxer).
+  Runs 41167344419 (mpv-builds) and 41167362004 (iina-builds) green; both players play the
+  earthquake resume, the 1313 boundary and the AVS+ capture with no more drops than the old-base
+  build (boundary README finding 9; IINA's libmpv tested headless with `libmpv_play.c` there).
 - Neither workflow sets `restore-keys` for the FFmpeg prefix, so a pin bump is a full rebuild.
 
 ## Upstream
