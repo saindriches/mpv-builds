@@ -3,7 +3,7 @@ name: build
 # Builds mpv (the player: mpv.app on macOS, mpv.exe on Windows, the binary on Linux) against an
 # FFmpeg compiled from our fork (saindriches/FFmpeg @ bt1869-tlv-ci, pinned by commit), so mpv plays
 # ISDB-S3 4K/8K .mmts natively through the bt1869_tlv demuxer. The branch is the bt1869-tlv upstream
-# series on the fork base (413346bd, master of 2025-12-02) plus the AVS+ decoder commits. mpv's own
+# series on FFmpeg master (92457ada, 2026-10-30) plus the AVS+ decoder as one commit. mpv's own
 # source tweaks live in patches/mpv/ and apply in order.
 #
 # Caching, so iterating is cheap:
@@ -41,7 +41,7 @@ concurrency:
 
 env:
   FFMPEG_REPO: "saindriches/FFmpeg"
-  FFMPEG_REF: "1216d32d9bc7e32675ab6d141899b07891f38bf6"
+  FFMPEG_REF: "42507c8a3abc1cc14f7fc6d9a0486462699fc80d"
   MPV_REF: ${{ github.event.inputs.mpv_ref || 'master' }}
   CACHE_EPOCH: "1"
 
@@ -139,7 +139,7 @@ jobs:
           # libav* into Contents/MacOS/lib and rewrites the load paths. Fail loudly if any leak.
           if otool -L "$BIN" | grep -q 'ffprefix/lib/'; then
             echo "::error::mpv still references the build prefix"; otool -L "$BIN"; exit 1; fi
-          test -f "$APP/Contents/MacOS/lib/libavcodec.62.dylib" || { echo "::error::libavcodec not relocated into the bundle"; exit 1; }
+          ls "$APP"/Contents/MacOS/lib/libavcodec.*.dylib >/dev/null || { echo "::error::libavcodec not relocated into the bundle"; exit 1; }
           strings "$APP"/Contents/MacOS/lib/libavformat.*.dylib | grep -x bt1869_tlv >/dev/null \
             || { echo "::error::bundled libavformat lacks the bt1869_tlv demuxer"; exit 1; }
           lipo -archs "$BIN"

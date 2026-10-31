@@ -1,6 +1,6 @@
 # Status: the FFmpeg MMT/TLV work behind mpv-builds and iina-builds
 
-Cold-readable entry point for the FFmpeg side of this project. Updated 2026-10-28.
+Cold-readable entry point for the FFmpeg side of this project. Updated 2026-10-31.
 The README describes the CI; this file says where the FFmpeg code stands and what is next.
 
 ## What it is
@@ -22,19 +22,19 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
 
 ## Pins (settled)
 
-- mpv-builds `manifest.env` and the workflow: `FFMPEG_REF=1216d32d` (2026-10-30), head of
-  `fork/bt1869-tlv-ci`: fork base `413346bd` + the four bt1869-tlv series commits + one CI-only
-  commit adapting them to that base (`avpriv_packet_list_*`, no `av_program_add_stream_index2`,
-  FATE reference regenerated) + the 29 AVS+ commits of `mmt-tlv-avsplus`, whose libavcodec is
-  byte-identical. 1216d32d replaced 0d40e016 the same day with the boundary fix: an access unit
-  that cannot be timed after a stream pause is dropped instead of getting a timestamp minutes in
-  the past (the earthquake capture's audio 0xf311 jumped back 188 s). Checked locally: builds
-  without warnings in our files, the TLV FATE test passes, no backward timestamp on the
-  earthquake capture; 0d40e016 also passed checkasm-cavsdsp and matched harness `series-11` on
-  all 22 samples, and the fix leaves the series harness unchanged (`series-12`). Known difference:
-  on 7 samples ffprobe's seek output lists one or two packets more or fewer right after the seek
-  point than on master; the demuxer is the same, so this is generic code of the older base (the
-  local clone is shallow, so not bisected). Rollback: `059cd851` (`mmt-tlv-avsplus`, untouched).
+- mpv-builds `manifest.env` and the workflow: `FFMPEG_REF=42507c8a` (2026-10-31), head of
+  `fork/bt1869-tlv-ci`: FFmpeg master of 2026-10-30 (`92457ada`) + the four bt1869-tlv series
+  commits (applied cleanly) + the AVS+ work of `mmt-tlv-avsplus` as one commit (`42507c8a`). That
+  commit is the AVS+ end state merged per file onto master; the overlaps with eleven upstream cavs
+  commits since 2025-12 were resolved by hand (bit reader set up once with `init_get_bits8()`,
+  `CAVS_DIR_MV`/`CAVS_INTRA_MV` macros, coefficient block inside `AVSContext`, no `emms_c()`,
+  annotated fall-throughs), lavc 63.26.100. Checked locally: builds without warnings in our
+  files; checkasm cavsdsp (qpel, idct8, loop filter on NEON) and FATE `cavs-aec` and
+  `bt1869-tlv-demux` pass; the AVS+ capture `/Volumes/Nearline/avs_codecs/BRTV3HD.ts` decodes
+  to the same 109 frame hashes as the old base; the MMT harness (`ci-master`) equals `series-12`
+  on all 22 samples and every seek, so the seek differences seen on the old base are gone.
+  Rollbacks: `bt1869-tlv-ci-2025-base` (`1216d32d`, the same demuxer on fork base `413346bd`
+  with one CI-only adaptation commit) and `059cd851` (`mmt-tlv-avsplus`, untouched).
 - mpv-builds CI since 2026-10-30: macOS arm64 only on `macos-26` (Homebrew no longer installs on
   Intel, and `macos-14` lost its bottles; the universal job is gone, on the user's choice),
   Windows on MSYS2 UCRT64 (MINGW64 lost rubberband and luajit), Linux unchanged. It had failed
@@ -42,8 +42,11 @@ STD-B32). The demuxer started as SuperFashi's upstream PR and carries our fixes 
   three; its arm64 mpv.app plays 20260628_1313 across its program boundary with no dropped
   frames, where the old mmttlv demuxer stops reading. Audit and tools:
   `/Volumes/Nearline/mmt_tlv/ffmpeg_regress/boundary/README.txt` (local disk, not in a repo).
-- iina-builds `.github/workflows/build.yml`: `FFMPEG_REF=c180246b`, one commit behind on purpose
-  (that commit is x86 SSE2 only; the IINA app is arm64).
+- iina-builds (2026-10-31): `FFMPEG_REF=42507c8a`, the same branch. Its Homebrew path broke
+  (the tap `iina/homebrew-mpv-iina` is unmaintained and its mpv branch `iina/mpv` is gone), so it
+  now builds the dependencies with IINA's own `iina/deps-buildscripts` (pinned `ee35579`, mpv
+  0.41.0) with FFmpeg swapped for our commit, and patches our DeckLink IINA branch to mpv 0.41
+  with upstream IINA `2353be00` (`patches/iina/0001`). Previous pin `c180246b` (old demuxer).
 - Neither workflow sets `restore-keys` for the FFmpeg prefix, so a pin bump is a full rebuild.
 
 ## Upstream
@@ -88,9 +91,8 @@ reference: packets equal to `series-2`, which predates the fixes. Run `series-1`
   user's call.
 - Same layer boundaries as the MediaInfoLib refactor (PR 2647, `File_Tlv` / `File_Mmt` /
   `File_Mmt_Arib.cpp`, local branch `mmt-tlv-refactor` in `~/PycharmProjects/MediaInfoLib`).
-- CI impact: cherry-pick the finished series to a new branch on the fork base for CI, rebuild
-  the AVS+ branch on top under a new name, and bump the pins only after the harness gate
-  passes. `mmt-tlv` and `mmt-tlv-avsplus` stay untouched as rollback points.
+- CI impact: done. `bt1869-tlv-ci` carries the series and AVS+ on current master (see Pins);
+  `mmt-tlv` and `mmt-tlv-avsplus` stay untouched as rollback points.
 
 ## Next step
 
